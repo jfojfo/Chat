@@ -1,0 +1,9 @@
+.classpath
+.project
+local.properties
+gen/
+bin/
+gen_ant/
+bin_ant/
+.apt_generated
+.settings
