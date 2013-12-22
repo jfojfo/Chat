@@ -1,6 +1,7 @@
 package com.jfo.app.chat.service;
 
 import com.jfo.app.chat.connection.ConnectionManager;
+import com.libs.utils.Utils;
 import com.lidroid.xutils.util.LogUtils;
 
 import android.app.Service;
@@ -10,13 +11,15 @@ import android.os.IBinder;
 
 
 public class ChatService extends Service {
-    public static final String ACTION_STOP_SERVICE = ChatService.class.getPackage().getName() + ".ACTION_STOP_SERVICE";
+    public static final String ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE";
+    public static final String ACTION_SHOW_TOAST = "ACTION_SHOW_TOAST";
+    public static final String EXTRA_TEXT = "text";
 
     @Override
     public void onCreate() {
         super.onCreate();
         LogUtils.d("service created.");
-        ConnectionManager.getInstance().init();
+        ConnectionManager.getInstance().init(this);
     }
 
     @Override
@@ -40,24 +43,28 @@ public class ChatService extends Service {
         service.setAction(ACTION_STOP_SERVICE);
         context.startService(service);
     }
-
+    
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         LogUtils.d("Received start id " + startId + ": " + intent);
         if (intent != null) {
             String action = intent.getAction();
-            LogUtils.d("onStartCommand:" + action);
+            LogUtils.d("action:" + action);
             if (ACTION_STOP_SERVICE.equals(action)) {
                 stopSelf();
             } else {
                 handleCommand(intent);
             }
         }
-        return super.onStartCommand(intent, flags, startId);
+        return START_STICKY;
     }
     
     private void handleCommand(Intent intent) {
         final String action = intent.getAction();
+        if (ACTION_SHOW_TOAST.equals(action)) {
+            String msg = intent.getStringExtra(EXTRA_TEXT);
+            Utils.showMessage(this, msg);
+        }
     }
 
 }
