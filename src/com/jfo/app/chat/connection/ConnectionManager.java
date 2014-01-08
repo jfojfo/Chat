@@ -10,6 +10,9 @@ import org.jivesoftware.smack.XMPPConnection;
 import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.Packet;
+import org.jivesoftware.smack.packet.Presence;
+import org.jivesoftware.smack.packet.RosterPacket;
+import org.jivesoftware.smack.provider.ProviderManager;
 import org.jivesoftware.smack.util.StringUtils;
 
 import android.content.ContentResolver;
@@ -22,7 +25,10 @@ import android.os.HandlerThread;
 
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
+import com.jfo.app.chat.connection.iq.ExMsgIQ;
+import com.jfo.app.chat.connection.iqprovider.ExMsgIQProvider;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
+import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
 import com.jfo.app.chat.service.ChatService;
 import com.libs.defer.Defer;
 import com.libs.defer.Defer.Func;
@@ -31,13 +37,13 @@ import com.libs.utils.Utils;
 import com.lidroid.xutils.util.LogUtils;
 
 public class ConnectionManager {
-    public static final String XMPP_SERVER = "192.168.10.103";
+    public static final String XMPP_SERVER = "10.228.160.5";
     public static final int XMPP_PORT = 5222;
-    private static ConnectionManager mConnectionManager;
+    private static ConnectionManager mConnectionManager = new ConnectionManager();
 
     private Context mContext;
     private XMPPConnection mConnection;
-    private BlockingQueue<JMessage> mSendQueue, mWaitingQueue;
+    private BlockingQueue<ChatMsg> mSendQueue, mWaitingQueue;
     private BlockingQueue<Packet> mIncommingMsgQueue;
     private Thread mSendThread, mReceiveThread;
     private HandlerThread mConnThread;
@@ -46,21 +52,26 @@ public class ConnectionManager {
     private static final int MSG_LOGIN = 2;
     private static final int MSG_REGISTER = 3;
     private static final int MSG_RECONNECT = 4;
+    private static final int MSG_REQ_ROSTER = 5;
+
+    static {
+        ProviderManager.getInstance().addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
+    }
 
     public static ConnectionManager getInstance() {
-        if (mConnectionManager == null) {
-            synchronized (ConnectionManager.class) {
-                if (mConnectionManager == null) {
-                    mConnectionManager = new ConnectionManager();
-                }
-            }
-        }
         return mConnectionManager;
     }
 
     private ConnectionManager() {
-        mSendQueue = new LinkedBlockingQueue<JMessage>();
-        mWaitingQueue = new LinkedBlockingQueue<JMessage>();
+    	
+    }
+
+    // init in Service
+    public void init(Context context) {
+        mContext = context;
+
+        mSendQueue = new LinkedBlockingQueue<ChatMsg>();
+        mWaitingQueue = new LinkedBlockingQueue<ChatMsg>();
         mIncommingMsgQueue = new LinkedBlockingQueue<Packet>();
 
         mConnThread = new HandlerThread("conn-thread");
@@ -74,14 +85,15 @@ public class ConnectionManager {
 
         ConnectionConfiguration config = new ConnectionConfiguration(
                 ConnectionManager.XMPP_SERVER, ConnectionManager.XMPP_PORT);
-        // config.setDebuggerEnabled(true);
+        config.setDebuggerEnabled(true);
         config.setCompressionEnabled(true);
         config.setSecurityMode(ConnectionConfiguration.SecurityMode.disabled);
         config.setSASLAuthenticationEnabled(false);
         config.setReconnectionAllowed(false);
-        config.setRosterLoadedAtLogin(false);
+//        config.setSendPresence(false);
+//        config.setRosterLoadedAtLogin(false);
         mConnection = new XMPPConnection(config);
-        mConnection.addPacketListener(new BasePacketListener(mContext), null);
+        mConnection.addPacketListener(new XMPPPacketListener(mContext), null);
         mConnection.addConnectionListener(new ConnectionListener() {
 
             @Override
@@ -111,8 +123,17 @@ public class ConnectionManager {
         });
     }
 
-    public void init(Context context) {
-        mContext = context;
+    public XMPPConnection getConnection() {
+        return mConnection;
+    }
+
+    public void test() {
+    	mConnection.sendPacket(new ExMsgIQ());
+    }
+
+    public void requestRoster() {
+//        mConnection.sendPacket(new RosterPacket());
+    	mConnHandler.sendEmptyMessage(MSG_REQ_ROSTER);
     }
 
     private Handler.Callback mConnCallback = new Handler.Callback() {
@@ -126,6 +147,9 @@ public class ConnectionManager {
             case MSG_RECONNECT:
                 doReConnect();
                 break;
+            case MSG_REQ_ROSTER:
+            	mConnection.getRoster();
+            	break;
             }
             return true;
         }
@@ -277,26 +301,28 @@ public class ConnectionManager {
         mConnHandler.sendEmptyMessage(MSG_RECONNECT);
     }
 
-    public void sendMessage(final JMessage jmsg) {
+    public void sendMessage(final ChatMsg chatMsg) {
+        LogUtils.d("send msg, threadID:" + chatMsg.getThreadID());
         ContentValues values = new ContentValues();
-        values.put(MessageColumns.ADDRESS, jmsg.getAddress());
-        values.put(MessageColumns.BODY, jmsg.getBody());
+        values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
+        values.put(MessageColumns.BODY, chatMsg.getBody());
         values.put(MessageColumns.DATE, System.currentTimeMillis());
         values.put(MessageColumns.READ, 1);
         values.put(MessageColumns.TYPE, MessageColumns.TYPE_OUTBOX);
         values.put(MessageColumns.STATUS, MessageColumns.STATUS_SENDING);
+        values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
         ContentResolver resolver = mContext.getContentResolver();
         Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
         LogUtils.d(uri.toString());
-        jmsg.setLocalId(Integer.valueOf(uri.getLastPathSegment()));
+        chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
 
-        if (!mSendQueue.offer(jmsg)) {
+        if (!mSendQueue.offer(chatMsg)) {
             BackgroundExecutor.execute(new Runnable() {
 
                 @Override
                 public void run() {
                     try {
-                        mSendQueue.put(jmsg);
+                        mSendQueue.put(chatMsg);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -305,6 +331,23 @@ public class ConnectionManager {
         }
     }
 
+    public void resendMessage(final ChatMsg chatMsg) {
+        LogUtils.d("re-send msg, threadID:" + chatMsg.getThreadID());
+        if (!mSendQueue.offer(chatMsg)) {
+            BackgroundExecutor.execute(new Runnable() {
+
+                @Override
+                public void run() {
+                    try {
+                        mSendQueue.put(chatMsg);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        }
+    }
+    
     public void recvMessage(final Packet packet) {
         if (!mIncommingMsgQueue.offer(packet)) {
             BackgroundExecutor.execute(new Runnable() {
@@ -329,7 +372,7 @@ public class ConnectionManager {
         }
 
         public void quit() {
-            quit = true;
+            this.quit = true;
         }
 
         public boolean isQuit() {
@@ -347,24 +390,28 @@ public class ConnectionManager {
         public void run() {
             while (!isQuit()) {
                 try {
-                    JMessage jmsg = mSendQueue.take();
+                    ChatMsg chatMsg = mSendQueue.take();
                     Message message = new Message();
                     message.setFrom(mConnection.getUser());
-                    message.setTo(jmsg.getAddress());
-                    message.setBody(jmsg.getBody());
+                    message.setTo(chatMsg.getAddress() + "@" + ConnectionManager.XMPP_SERVER);
+                    message.setBody(chatMsg.getBody());
                     message.setType(Message.Type.chat);
                     try {
                         mConnection.sendPacket(message);
+
+                        ContentValues values = new ContentValues();
+                        values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
+                        ContentResolver resolver = mContext.getContentResolver();
+                        Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
+                        resolver.update(uri, values, null, null);
                     } catch (Exception e) {
                         LogUtils.e("bad connection, need to reconnect");
                         reconnect();
 
                         ContentValues values = new ContentValues();
-                        values.put(MessageColumns.STATUS,
-                                MessageColumns.STATUS_FAIL);
-                        ContentResolver resolver = mContext
-                                .getContentResolver();
-                        Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(jmsg.getLocalId()));
+                        values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL);
+                        ContentResolver resolver = mContext.getContentResolver();
+                        Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
                         resolver.update(uri, values, null, null);
                     }
                 } catch (InterruptedException e) {
@@ -388,15 +435,17 @@ public class ConnectionManager {
                     Packet packet = mIncommingMsgQueue.take();
                     Message message = (Message) packet;
 
+                    String user = StringUtils.parseName(message.getFrom());
+                    long threadID = ThreadsHelper.getOrCreateThreadId(mContext, user);
+                    LogUtils.d("recv msg, threadid:" + threadID);
                     ContentValues values = new ContentValues();
-                    values.put(MessageColumns.ADDRESS,
-                            StringUtils.parseName(message.getFrom()));
+                    values.put(MessageColumns.ADDRESS, user);
+                    values.put(MessageColumns.THREAD_ID, threadID);
                     values.put(MessageColumns.BODY, message.getBody());
                     values.put(MessageColumns.DATE, System.currentTimeMillis());
                     values.put(MessageColumns.READ, 0);
                     values.put(MessageColumns.TYPE, MessageColumns.TYPE_INBOX);
-                    values.put(MessageColumns.STATUS,
-                            MessageColumns.STATUS_IDEL);
+                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
                     ContentResolver resolver = mContext.getContentResolver();
                     resolver.insert(MessageColumns.CONTENT_URI, values);
                 } catch (InterruptedException e) {

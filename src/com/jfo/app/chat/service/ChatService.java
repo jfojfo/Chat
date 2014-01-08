@@ -1,19 +1,22 @@
 package com.jfo.app.chat.service;
 
-import com.jfo.app.chat.connection.ConnectionManager;
-import com.libs.utils.Utils;
-import com.lidroid.xutils.util.LogUtils;
+import java.util.ArrayList;
 
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
 
+import com.jfo.app.chat.connection.ConnectionManager;
+import com.libs.utils.Utils;
+import com.lidroid.xutils.util.LogUtils;
+
 
 public class ChatService extends Service {
     public static final String ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE";
     public static final String ACTION_SHOW_TOAST = "ACTION_SHOW_TOAST";
     public static final String EXTRA_TEXT = "text";
+    public static ArrayList<String> mContacts = new ArrayList<String>();
 
     @Override
     public void onCreate() {

@@ -83,6 +83,7 @@ public class LoginActivity extends Activity {
                 Utils.setStringPref(getApplicationContext(), Constants.PREF_USERNAME, name);
                 Utils.setStringPref(getApplicationContext(), Constants.PREF_PASSWORD, password);
                 startActivity(new Intent(LoginActivity.this, MainActivity.class));
+                finish();
             }
         });
     }

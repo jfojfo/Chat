@@ -5,7 +5,7 @@ import org.jivesoftware.smack.util.StringUtils;
 
 import com.jfo.app.chat.helper.G;
 
-public class JMessage {
+public class ChatMsg {
     private String address;
     private String body;
     private long date;
@@ -13,14 +13,23 @@ public class JMessage {
     private int read;
     private int status;
     
-    private long localId;
+    private long msgID;
+    private long threadID;
 
-    public long getLocalId() {
-        return localId;
+    public long getMsgID() {
+        return msgID;
     }
 
-    public void setLocalId(long localId) {
-        this.localId = localId;
+    public void setMsgID(long msgID) {
+        this.msgID = msgID;
+    }
+
+    public long getThreadID() {
+        return threadID;
+    }
+
+    public void setThreadID(long threadID) {
+        this.threadID = threadID;
     }
 
     public String getAddress() {
@@ -71,11 +80,11 @@ public class JMessage {
         this.status = status;
     }
 
-    public static JMessage from(Message message) {
-        JMessage jmsg = new JMessage();
-        jmsg.address = StringUtils.parseName(message.getFrom());
-        jmsg.body = message.getBody();
-        return jmsg;
+    public static ChatMsg from(Message message) {
+        ChatMsg chatMsg = new ChatMsg();
+        chatMsg.address = StringUtils.parseName(message.getFrom());
+        chatMsg.body = message.getBody();
+        return chatMsg;
     }
     
     public String toJson() {

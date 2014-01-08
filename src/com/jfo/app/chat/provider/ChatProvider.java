@@ -1,6 +1,8 @@
 package com.jfo.app.chat.provider;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 
 import android.content.ContentProvider;
 import android.content.ContentUris;
@@ -16,7 +18,10 @@ import android.net.Uri;
 import android.text.TextUtils;
 
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
+import com.jfo.app.chat.provider.ChatDataStructs.ThreadsColumns;
+import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
 import com.libs.utils.LogUtil;
+import com.lidroid.xutils.util.LogUtils;
 
 public class ChatProvider extends ContentProvider {
     private static final String TAG = ChatProvider.class.getSimpleName();
@@ -24,9 +29,61 @@ public class ChatProvider extends ContentProvider {
     private static final String DATABASE_NAME = "chat.db";
     private static final int DATABASE_VERSION = 1;
     private static final HashMap<String, String> sMsgProjectionMap;
+    private static final HashMap<String, String> sThreadsProjectionMap;
     private static final int MESSAGE = 10;
     private static final int MESSAGE_ID = 11;
+    private static final int THREADS = 20;
+    private static final int THREADS_ID = 21;
+    private static final int QUERY_THREAD_ID = 31;
     private static final UriMatcher URI_MATCHER;
+
+//    private static final String UPDATE_THREAD_COUNT =
+//            " UPDATE " + ThreadsColumns.TABLE_NAME + 
+//            "  SET " + ThreadsColumns.MESSAGE_COUNT + " = " +
+//            "   (SELECT COUNT(" + MessageColumns._ID + ") FROM " + MessageColumns.TABLE_NAME +
+//            "    WHERE " + MessageColumns.THREAD_ID + " = " + "NEW." + MessageColumns.THREAD_ID + ")" +
+//            " WHERE " + ThreadsColumns._ID + " = " + " NEW." + MessageColumns.THREAD_ID + "; ";
+//    private static final String UPDATE_THREADS_ON_INSERT_MESSAGE =
+//            "CREATE TRIGGER update_threads_on_insert_message " +
+//            " AFTER INSERT ON " + MessageColumns.TABLE_NAME +
+//            " BEGIN " +
+//            "  UPDATE " + ThreadsColumns.TABLE_NAME + 
+//            "   SET " + ThreadsColumns.SNIPPET + " = NEW." + MessageColumns.BODY +
+//            "   WHERE " + ThreadsColumns._ID + " = NEW." + MessageColumns.THREAD_ID + ";" +
+//            " END";
+    private static final String UPDATE_THREADS_ON_INSERT_MESSAGE =
+            "CREATE TRIGGER update_threads_on_insert_message " +
+            " AFTER INSERT ON message " +
+            " BEGIN " +
+            "  UPDATE threads SET " +
+            "   snippet=NEW.body," +
+            "   date=NEW.date," +
+            "   message_count=(SELECT COUNT(_id) FROM message WHERE thread_id=NEW.thread_id)," +
+            "   unread_message_count=(SELECT COUNT(_id) FROM message WHERE thread_id=NEW.thread_id AND read=0)," +
+            "   read= CASE (SELECT COUNT(_id) FROM message WHERE read=0 AND thread_id=NEW.thread_id) WHEN 0 THEN 1 ELSE 0 END" +
+            "  WHERE _id=NEW.thread_id;" +
+            " END";
+    private static final String UPDATE_THREADS_ON_DELETE_MESSAGE =
+            "CREATE TRIGGER update_threads_on_delete_message " +
+            " AFTER DELETE ON message " +
+            " BEGIN " +
+            "  UPDATE threads SET " +
+            "   snippet=(SELECT body FROM message WHERE thread_id=OLD.thread_id ORDER BY date DESC LIMIT 1)," +
+            "   date=(SELECT date FROM message WHERE thread_id=OLD.thread_id ORDER BY date DESC LIMIT 1)," +
+            "   message_count=(SELECT COUNT(_id) FROM message WHERE thread_id=OLD.thread_id)," +
+            "   unread_message_count=(SELECT COUNT(_id) FROM message WHERE thread_id=OLD.thread_id AND read=0)," +
+            "   read= CASE (SELECT COUNT(_id) FROM message WHERE read=0 AND thread_id=OLD.thread_id) WHEN 0 THEN 1 ELSE 0 END" +
+            "  WHERE _id=OLD.thread_id;" +
+            " END";
+    private static final String UPDATE_THREADS_ON_UPDATE_MESSAGE =
+            "CREATE TRIGGER update_threads_on_update_message " +
+            " AFTER UPDATE OF read ON message " +
+            " BEGIN " +
+            "  UPDATE threads SET " +
+            "   unread_message_count=(SELECT COUNT(_id) FROM message WHERE thread_id=NEW.thread_id AND read=0)," +
+            "   read= CASE (SELECT COUNT(_id) FROM message WHERE read=0 AND thread_id=NEW.thread_id) WHEN 0 THEN 1 ELSE 0 END" +
+            "  WHERE _id=NEW.thread_id;" +
+            " END";
 
     /**
      * This class helps open, create, and upgrade the database file.
@@ -43,6 +100,10 @@ public class ChatProvider extends ContentProvider {
                 LogUtil.d(TAG, "DatabaseHelper create");
             }
             db.execSQL(MessageColumns.SQL_CREATE);
+            db.execSQL(ThreadsColumns.SQL_CREATE);
+            db.execSQL(UPDATE_THREADS_ON_INSERT_MESSAGE);
+            db.execSQL(UPDATE_THREADS_ON_DELETE_MESSAGE);
+            db.execSQL(UPDATE_THREADS_ON_UPDATE_MESSAGE);
         }
 
         @Override
@@ -71,11 +132,27 @@ public class ChatProvider extends ContentProvider {
         String orderBy = null;
 
         switch (URI_MATCHER.match(uri)) {
+        case MESSAGE_ID:
+            qb.appendWhere(MessageColumns._ID + "=" + uri.getLastPathSegment());
         case MESSAGE:
             qb.setTables(MessageColumns.TABLE_NAME);
-            qb.setProjectionMap(sMsgProjectionMap);
+//            qb.setProjectionMap(sMsgProjectionMap);
             if (TextUtils.isEmpty(sortOrder)) {
                 orderBy = MessageColumns.DEFAULT_SORT_ORDER;
+            } else {
+                orderBy = sortOrder;
+            }
+            break;
+        case QUERY_THREAD_ID:
+            String recipient = uri.getQueryParameter("recipient");
+            return getThreadId(recipient);
+        case THREADS_ID:
+            qb.appendWhere(ThreadsColumns._ID + "=" + uri.getLastPathSegment());
+        case THREADS:
+            qb.setTables(ThreadsColumns.TABLE_NAME);
+//            qb.setProjectionMap(sThreadsProjectionMap);
+            if (TextUtils.isEmpty(sortOrder)) {
+                orderBy = ThreadsColumns.DEFAULT_SORT_ORDER;
             } else {
                 orderBy = sortOrder;
             }
@@ -99,7 +176,11 @@ public class ChatProvider extends ContentProvider {
     public String getType(Uri uri) {
         switch (URI_MATCHER.match(uri)) {
         case MESSAGE:
+        case MESSAGE_ID:
             return MessageColumns.CONTENT_TYPE;
+        case THREADS:
+        case THREADS_ID:
+            return ThreadsColumns.CONTENT_TYPE;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
@@ -120,17 +201,31 @@ public class ChatProvider extends ContentProvider {
 
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
 
-        switch (URI_MATCHER.match(uri)) {
-        case MESSAGE: {
-            long rowId = db.insert(MessageColumns.TABLE_NAME, MessageColumns.ADDRESS,
-                    values);
+        String tableName = null, nullColumnHack = null;
+        final int match = URI_MATCHER.match(uri);
+        switch (match) {
+        case MESSAGE:
+            tableName = MessageColumns.TABLE_NAME;
+            nullColumnHack = MessageColumns.ADDRESS;
+            break;
+        case THREADS:
+            tableName = ThreadsColumns.TABLE_NAME;
+            break;
+        }
+
+        if (tableName != null) {
+            long rowId = db.insert(tableName, nullColumnHack, values);
             if (rowId > 0) {
-                Uri result = ContentUris.withAppendedId(MessageColumns.CONTENT_URI,
-                        rowId);
+                Uri result = ContentUris.withAppendedId(uri, rowId);
                 getContext().getContentResolver().notifyChange(result, null);
+                if (match == MESSAGE) {
+//                    Long threadId = initialValues.getAsLong(MessageColumns.THREAD_ID);
+//                    if (threadId != null)
+//                        updateThread(db, threadId);
+                    getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
+                }
                 return result;
             }
-        }
         }
 
         throw new SQLException("Failed to insert row into " + uri);
@@ -174,19 +269,37 @@ public class ChatProvider extends ContentProvider {
         }
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         int count = 0;
-        switch (URI_MATCHER.match(uri)) {
-        case MESSAGE:
-            count = db.delete(MessageColumns.TABLE_NAME, where, whereArgs);
-            break;
+        String table = null;
+        final int match = URI_MATCHER.match(uri);
+        switch (match) {
         case MESSAGE_ID:
             where = MessageColumns._ID + "=" + uri.getLastPathSegment()
                 + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
-            count = db.delete(MessageColumns.TABLE_NAME, where, whereArgs);
+        case MESSAGE:
+            table = MessageColumns.TABLE_NAME;
+            break;
+        case THREADS_ID:
+            where = ThreadsColumns._ID + "=" + uri.getLastPathSegment()
+                + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
+        case THREADS:
+            table = ThreadsColumns.TABLE_NAME;
+            break;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
-
-        getContext().getContentResolver().notifyChange(uri, null);
+        if (table != null) {
+            count = db.delete(table, where, whereArgs);
+            if (count > 0) {
+                getContext().getContentResolver().notifyChange(uri, null);
+                if (match == MESSAGE_ID || match == MESSAGE) {
+                    db.delete(ThreadsColumns.TABLE_NAME, 
+                            ThreadsColumns._ID + " NOT IN (SELECT DISTINCT " + 
+                            MessageColumns.THREAD_ID + " FROM " + MessageColumns.TABLE_NAME + ")", null);
+                    getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
+                }
+            }
+        }
+        
         return count;
     }
 
@@ -199,33 +312,116 @@ public class ChatProvider extends ContentProvider {
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
 
         int count = 0;
-        switch (URI_MATCHER.match(uri)) {
-        case MESSAGE:
-            count = db.update(MessageColumns.TABLE_NAME, values, where, whereArgs);
-            break;
+        final int match = URI_MATCHER.match(uri);
+        switch (match) {
         case MESSAGE_ID:
             where = MessageColumns._ID + "=" + uri.getLastPathSegment()
                 + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
+        case MESSAGE:
             count = db.update(MessageColumns.TABLE_NAME, values, where, whereArgs);
+            break;
+        case THREADS_ID:
+            where = ThreadsColumns._ID + "=" + uri.getLastPathSegment()
+                + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
+        case THREADS:
+            count = db.update(ThreadsColumns.TABLE_NAME, values, where, whereArgs);
             break;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
 
-        getContext().getContentResolver().notifyChange(uri, null);
+        if (count > 0) {
+            getContext().getContentResolver().notifyChange(uri, null);
+            if (match == MESSAGE_ID || match == MESSAGE) {
+                getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
+            }
+        }
         return count;
     }
 
+    private synchronized Cursor getThreadId(String recipient) {
+        String[] selectionArgs = new String[] { recipient };
+        final String THREAD_QUERY = "SELECT " + ThreadsColumns._ID + 
+                " FROM " + ThreadsColumns.TABLE_NAME
+                + " WHERE " + ThreadsColumns.RECIPIENTS + "=?";
+
+        SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+        Cursor cursor = db.rawQuery(THREAD_QUERY, selectionArgs);
+
+        if (cursor.getCount() == 0) {
+            cursor.close();
+
+            LogUtils.d("getThreadId: create new thread_id for recipients " + recipient);
+            insertThread(recipient);
+
+            db = mOpenHelper.getReadableDatabase();  // In case insertThread closed it
+            cursor = db.rawQuery(THREAD_QUERY, selectionArgs);
+        }
+        
+        if (cursor.getCount() > 1) {
+            LogUtils.w("getThreadId: why is cursorCount=" + cursor.getCount());
+        }
+
+        return cursor;
+    }
+    
+    private void insertThread(String recipient) {
+        ContentValues values = new ContentValues(4);
+
+        long date = System.currentTimeMillis();
+        values.put(ThreadsColumns.DATE, date - date % 1000);
+        values.put(ThreadsColumns.RECIPIENTS, recipient);
+        values.put(ThreadsColumns.MESSAGE_COUNT, 0);
+
+        long result = mOpenHelper.getWritableDatabase().insert(
+                ThreadsColumns.TABLE_NAME, null, values);
+        LogUtils.d("insertThread: created new thread_id " + result +
+                " for recipientIds " + recipient);
+
+        getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
+    }
+
+    private void updateThread(SQLiteDatabase db, long threadId) {
+        int rows = db.delete(ThreadsColumns.TABLE_NAME,
+                "_id = ? AND _id NOT IN " +
+                "  (SELECT " + MessageColumns.THREAD_ID + " FROM " + MessageColumns.TABLE_NAME + ")",
+                new String[]{ String.valueOf(threadId) });
+        if (rows <= 0) {
+        db.execSQL(
+                " UPDATE threads SET message_count = " +
+                "   (SELECT COUNT(_id) FROM message WHERE thread_id = " + threadId + ")" +
+                " WHERE _id = " + threadId + ";"
+             );
+        db.execSQL(
+                " UPDATE threads SET unread_message_count = " +
+                "   (SELECT COUNT(_id) FROM message " + 
+                        " WHERE thread_id = " + threadId + " AND read=0)" +
+                " WHERE _id = " + threadId + ";"
+             );
+        db.execSQL(
+                " UPDATE threads SET " +
+                " date=" +
+                "   (SELECT date FROM message WHERE thread_id=" + threadId + " ORDER BY date DESC LIMIT 1)," +
+                " snippet=" +
+                "   (SELECT body FROM message WHERE thread_id=" + threadId + " ORDER BY date DESC LIMIT 1)" +
+                " WHERE _id=" + threadId + ";"
+             );
+        }
+        getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
+    }
+    
     static {
         URI_MATCHER = new UriMatcher(UriMatcher.NO_MATCH);
         URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, MessageColumns.TABLE_NAME, MESSAGE);
         URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, MessageColumns.TABLE_NAME + "/#", MESSAGE_ID);
+        URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, ThreadsColumns.TABLE_NAME, THREADS);
+        URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, ThreadsColumns.TABLE_NAME + "/#", THREADS_ID);
+        URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, ThreadsHelper.THREAD_ID_QUERY_NAME, QUERY_THREAD_ID);
 
         sMsgProjectionMap = new HashMap<String, String>();
         sMsgProjectionMap.put(MessageColumns._ID, MessageColumns._ID);
         sMsgProjectionMap.put(MessageColumns.ADDRESS, MessageColumns.ADDRESS);
         sMsgProjectionMap.put(MessageColumns.THREAD_ID, MessageColumns.THREAD_ID);
-        sMsgProjectionMap.put(MessageColumns.SMS_ID, MessageColumns.SMS_ID);
         sMsgProjectionMap.put(MessageColumns.BODY, MessageColumns.BODY);
         sMsgProjectionMap.put(MessageColumns.DATE, MessageColumns.DATE);
         sMsgProjectionMap.put(MessageColumns.EXPAND_DATA1, MessageColumns.EXPAND_DATA1);
@@ -239,5 +435,14 @@ public class ChatProvider extends ContentProvider {
         sMsgProjectionMap.put(MessageColumns.SUBJECT, MessageColumns.SUBJECT);
         sMsgProjectionMap.put(MessageColumns.TYPE, MessageColumns.TYPE);
 
+        sThreadsProjectionMap = new HashMap<String, String>();
+        sThreadsProjectionMap.put(ThreadsColumns._ID, ThreadsColumns._ID);
+        sThreadsProjectionMap.put(ThreadsColumns.RECIPIENTS, ThreadsColumns.RECIPIENTS);
+        sThreadsProjectionMap.put(ThreadsColumns.DATE, ThreadsColumns.DATE);
+        sThreadsProjectionMap.put(ThreadsColumns.MESSAGE_COUNT, ThreadsColumns.MESSAGE_COUNT);
+        sThreadsProjectionMap.put(ThreadsColumns.UNREAD_MESSAGE_COUNT, ThreadsColumns.UNREAD_MESSAGE_COUNT);
+        sThreadsProjectionMap.put(ThreadsColumns.READ, ThreadsColumns.READ);
+        sThreadsProjectionMap.put(ThreadsColumns.SNIPPET, ThreadsColumns.SNIPPET);
+        // TODO add other columns ...
     }
 }
