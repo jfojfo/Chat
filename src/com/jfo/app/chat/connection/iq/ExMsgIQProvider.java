@@ -1,10 +1,9 @@
-package com.jfo.app.chat.connection.iqprovider;
+package com.jfo.app.chat.connection.iq;
 
 import org.jivesoftware.smack.packet.IQ;
 import org.jivesoftware.smack.provider.IQProvider;
 import org.xmlpull.v1.XmlPullParser;
 
-import com.jfo.app.chat.connection.iq.ExMsgIQ;
 
 public class ExMsgIQProvider implements IQProvider {
 

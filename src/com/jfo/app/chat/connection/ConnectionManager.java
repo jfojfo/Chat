@@ -26,7 +26,7 @@ import android.os.HandlerThread;
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
-import com.jfo.app.chat.connection.iqprovider.ExMsgIQProvider;
+import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
 import com.jfo.app.chat.service.ChatService;
@@ -37,7 +37,7 @@ import com.libs.utils.Utils;
 import com.lidroid.xutils.util.LogUtils;
 
 public class ConnectionManager {
-    public static final String XMPP_SERVER = "10.228.160.5";
+    public static final String XMPP_SERVER = "xmpp.pickbox.me";
     public static final int XMPP_PORT = 5222;
     private static ConnectionManager mConnectionManager = new ConnectionManager();
 

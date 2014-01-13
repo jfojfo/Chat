@@ -29,6 +29,10 @@
             android:name="com.jfo.app.chat.ChatActivity"
             android:windowSoftInputMode="stateHidden"
             android:configChanges="orientation|screenSize" />
+        <activity
+            android:name="com.jfo.app.chat.widget.MenuActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize" />
 
         <service
             android:name=".service.ChatService"

@@ -1,7 +1,5 @@
 package com.jfo.app.chat;
 
-import org.xbill.DNS.MFRecord;
-
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
@@ -22,8 +20,14 @@ public class MainActivity extends FragmentActivity {
     @ViewInject(R.id.tab_contact)
     private View mTabContacts;
     
+    @ViewInject(R.id.tab_profile)
+    private View mTabProfile;
+    
+    private View mLastSelectedView;
+
     private Fragment mMsgListFragment;
     private Fragment mContactsFragment;
+    private Fragment mProfileFragment;
     private Fragment mCurrFragment;
     
     @Override
@@ -57,37 +61,58 @@ public class MainActivity extends FragmentActivity {
         final FragmentTransaction ft = fm.beginTransaction();
         mMsgListFragment = new InboxListFragment();
         mContactsFragment = new ContactsFragment();
+        mProfileFragment = new ProfileFragment();
         ft.add(R.id.content, mMsgListFragment);
         ft.add(R.id.content, mContactsFragment);
+        ft.add(R.id.content, mProfileFragment);
+        ft.hide(mMsgListFragment);
         ft.hide(mContactsFragment);
-        ft.commit();
+        ft.hide(mProfileFragment);
+        
         mCurrFragment = mMsgListFragment;
+        ft.show(mCurrFragment);
+
+        ft.commit();
+        
+        mLastSelectedView = mTabMsg;
+        mLastSelectedView.setSelected(true);
+    }
+    
+    private void setFragment(Fragment fragment) {
+        if (mCurrFragment == fragment)
+            return;
+        final FragmentManager fm = getSupportFragmentManager();
+        final FragmentTransaction ft = fm.beginTransaction();
+        ft.hide(mCurrFragment);
+        mCurrFragment = fragment;
+        ft.show(mCurrFragment);
+        ft.commit();
+    }
+    
+    private void updateTab(View tab) {
+        mLastSelectedView.setSelected(false);
+        mLastSelectedView = tab;
+        mLastSelectedView.setSelected(true);
     }
     
     @OnClick(R.id.tab_message)
     public void onTabMsgClick(View view) {
-        if (mCurrFragment == mMsgListFragment)
-            return;
-        final FragmentManager fm = getSupportFragmentManager();
-        final FragmentTransaction ft = fm.beginTransaction();
-        ft.hide(mCurrFragment);
-        ft.show(mMsgListFragment);
-        mCurrFragment = mMsgListFragment;
-        ft.commit();
+        updateTab(view);
+        setFragment(mMsgListFragment);
     }
 
     @OnClick(R.id.tab_contact)
     public void onTabContactsClick(View view) {
-        if (mCurrFragment == mContactsFragment)
-            return;
-        final FragmentManager fm = getSupportFragmentManager();
-        final FragmentTransaction ft = fm.beginTransaction();
-        ft.hide(mCurrFragment);
-        ft.show(mContactsFragment);
-        mCurrFragment = mContactsFragment;
-        ft.commit();
+        updateTab(view);
+        setFragment(mContactsFragment);
         ConnectionManager.getInstance().requestRoster();
         ConnectionManager.getInstance().test();
+    }
+
+    @OnClick(R.id.tab_profile)
+    public void onTabProfileClick(View view) {
+        updateTab(view);
+        setFragment(mProfileFragment);
     }
 
 }
