@@ -28,6 +28,8 @@ import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
+import com.libs.defer.Defer.Func;
+import com.libs.utils.Utils;
 import com.lidroid.xutils.ViewUtils;
 import com.lidroid.xutils.util.LogUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
@@ -126,6 +128,23 @@ public class ChatFragment extends Fragment {
         chatMsg.setThreadID(mThreadID);
         ConnectionManager.getInstance().sendMessage(chatMsg);
         mEdit.setText("");
+    }
+    
+    @OnClick(R.id.btnSendFile)
+    public void onSendFile(View view) {
+        ConnectionManager.getInstance().sendFile(getActivity(), mUser, "/sdcard/test.txt").done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                Utils.showMessage(getActivity(), "send file success");
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                Utils.showMessage(getActivity(), "send file fail");
+            }
+        });
     }
 
     @Override

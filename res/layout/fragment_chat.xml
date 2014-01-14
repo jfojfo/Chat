@@ -22,6 +22,12 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:text="发送" />
+        <Button
+            android:id="@+id/btnSendFile"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:text="文件" />
     </LinearLayout>
 
     <ListView

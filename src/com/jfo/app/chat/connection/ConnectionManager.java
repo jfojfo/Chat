@@ -1,5 +1,7 @@
 package com.jfo.app.chat.connection;
 
+import java.io.File;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -13,15 +15,23 @@ import org.jivesoftware.smack.ConnectionListener;
 import org.jivesoftware.smack.Roster;
 import org.jivesoftware.smack.RosterEntry;
 import org.jivesoftware.smack.RosterGroup;
+import org.jivesoftware.smack.SmackAndroid;
 import org.jivesoftware.smack.SmackConfiguration;
 import org.jivesoftware.smack.XMPPConnection;
 import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.Packet;
+import org.jivesoftware.smack.packet.Presence;
 import org.jivesoftware.smack.packet.RosterPacket.ItemStatus;
 import org.jivesoftware.smack.packet.RosterPacket.ItemType;
 import org.jivesoftware.smack.provider.ProviderManager;
 import org.jivesoftware.smack.util.StringUtils;
+import org.jivesoftware.smackx.filetransfer.FileTransfer;
+import org.jivesoftware.smackx.filetransfer.FileTransferManager;
+import org.jivesoftware.smackx.filetransfer.OutgoingFileTransfer;
+import org.jivesoftware.smackx.filetransfer.FileTransfer.Status;
+import org.jivesoftware.smackx.filetransfer.OutgoingFileTransfer.NegotiationProgress;
 import org.jivesoftware.smackx.packet.VCard;
+import org.jivesoftware.smackx.provider.StreamInitiationProvider;
 import org.jivesoftware.smackx.provider.VCardProvider;
 
 import android.app.Activity;
@@ -67,7 +77,6 @@ public class ConnectionManager {
     static {
         ProviderManager pm = ProviderManager.getInstance();
         pm.addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
-        pm.addIQProvider("vCard", "vcard-temp", new VCardProvider());
     }
 
     public static ConnectionManager getInstance() {
@@ -95,7 +104,10 @@ public class ConnectionManager {
         mReceiveThread = new ReceiveThread("receive-thread");
         mReceiveThread.start();
 
+        // this will register providers in ConfigureProviderManager.java
+        SmackAndroid.init(mContext);
         SmackConfiguration.setPacketReplyTimeout(20000);
+
         ConnectionConfiguration config = new ConnectionConfiguration(
                 ConnectionManager.XMPP_SERVER, ConnectionManager.XMPP_PORT);
         config.setDebuggerEnabled(true);
@@ -286,7 +298,13 @@ public class ConnectionManager {
         mConnHandler.post(new Runnable() {
             @Override
             public void run() {
-                doFetchAvatar(defer);
+                BackgroundExecutor.execute(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        doFetchAvatar(defer);
+                    }
+                });
             }
         });
         return defer.promise();
@@ -315,7 +333,13 @@ public class ConnectionManager {
         mConnHandler.post(new Runnable() {
             @Override
             public void run() {
-                doUploadAvatar(defer, bytes);
+                BackgroundExecutor.execute(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        doUploadAvatar(defer, bytes);
+                    }
+                });
             }
         });
         return defer.promise();
@@ -337,6 +361,44 @@ public class ConnectionManager {
         defer.reject();
     }
 
+    public Promise sendFile(Activity activity, final String user, final String path) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                BackgroundExecutor.execute(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        doSendFile(defer, user, path);
+                    }
+                });
+            }
+        });
+        return defer.promise();
+    }
+    
+    private void doSendFile(final MyDefer defer, String user, String path) {
+        try {
+            if (checkConnection()) {
+                XMPPConnection conn = getConnection();
+                Presence presence = conn.getRoster().getPresence(user + "@" + XMPP_SERVER);
+                if (presence.isAvailable()) {
+                    FileTransferManager ftmgr = new FileTransferManager(conn);
+                    OutgoingFileTransfer transfer = ftmgr  
+                            .createOutgoingFileTransfer(presence.getFrom());
+                    transfer.sendFile(new File(path), "File");
+                    while (!transfer.isDone()) {
+                        
+                    }
+                    DeferHelper.accept(defer);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        DeferHelper.deny(defer);
+    }
 
     public void sendMessage(final ChatMsg chatMsg) {
         LogUtils.d("send msg, threadID:" + chatMsg.getThreadID());
