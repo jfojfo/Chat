@@ -33,15 +33,15 @@ public class LoginActivity extends Activity {
         String password = mPassword.getText().toString();
         // password = MD5.encodeString(password, null);
         final ConnectionManager connMgr = ConnectionManager.getInstance();
-        connMgr.register(name, password).done(new Func() {
+        connMgr.register(this, name, password).done(new Func() {
             @Override
             public void call(Object... args) {
-                showMsg("register success");
+                Utils.showMessage(LoginActivity.this, "register success");
             }
         }).fail(new Func() {
             @Override
             public void call(Object... args) {
-                showMsg("register fail");
+                Utils.showMessage(LoginActivity.this, "register fail");
             }
         });
     }
@@ -51,41 +51,27 @@ public class LoginActivity extends Activity {
         String name = mName.getText().toString();
         String password = mPassword.getText().toString();
         // password = MD5.encodeString(password, null);
-        ConnectionManager.getInstance().login(name, password).done(new Func() {
+        ConnectionManager.getInstance().login(this, name, password).done(new Func() {
             @Override
             public void call(Object... args) {
-                showMsg("login success");
+                Utils.showMessage(LoginActivity.this, "login success");
                 loginSuccess();
             }
         }).fail(new Func() {
             @Override
             public void call(Object... args) {
-                showMsg("login fail");
-            }
-        });
-    }
-
-    private void showMsg(final String msg) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Utils.showMessage(LoginActivity.this, msg);
+                Utils.showMessage(LoginActivity.this, "login fail");
             }
         });
     }
 
     private void loginSuccess() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                String name = mName.getText().toString();
-                String password = mPassword.getText().toString();
-                Utils.setStringPref(getApplicationContext(), Constants.PREF_USERNAME, name);
-                Utils.setStringPref(getApplicationContext(), Constants.PREF_PASSWORD, password);
-                startActivity(new Intent(LoginActivity.this, MainActivity.class));
-                finish();
-            }
-        });
+        String name = mName.getText().toString();
+        String password = mPassword.getText().toString();
+        Utils.setStringPref(getApplicationContext(), Constants.PREF_USERNAME, name);
+        Utils.setStringPref(getApplicationContext(), Constants.PREF_PASSWORD, password);
+        startActivity(new Intent(LoginActivity.this, MainActivity.class));
+        finish();
     }
     
 }

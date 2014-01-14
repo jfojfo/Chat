@@ -1,24 +1,33 @@
 package com.jfo.app.chat.connection;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.jivesoftware.smack.AccountManager;
 import org.jivesoftware.smack.ConnectionConfiguration;
 import org.jivesoftware.smack.ConnectionListener;
+import org.jivesoftware.smack.Roster;
+import org.jivesoftware.smack.RosterEntry;
+import org.jivesoftware.smack.RosterGroup;
+import org.jivesoftware.smack.SmackConfiguration;
 import org.jivesoftware.smack.XMPPConnection;
-import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.Packet;
-import org.jivesoftware.smack.packet.Presence;
-import org.jivesoftware.smack.packet.RosterPacket;
+import org.jivesoftware.smack.packet.RosterPacket.ItemStatus;
+import org.jivesoftware.smack.packet.RosterPacket.ItemType;
 import org.jivesoftware.smack.provider.ProviderManager;
 import org.jivesoftware.smack.util.StringUtils;
+import org.jivesoftware.smackx.packet.VCard;
+import org.jivesoftware.smackx.provider.VCardProvider;
 
+import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -27,11 +36,10 @@ import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
+import com.jfo.app.chat.helper.DeferHelper;
+import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
-import com.jfo.app.chat.service.ChatService;
-import com.libs.defer.Defer;
-import com.libs.defer.Defer.Func;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.util.LogUtils;
@@ -48,14 +56,18 @@ public class ConnectionManager {
     private Thread mSendThread, mReceiveThread;
     private HandlerThread mConnThread;
     private Handler mConnHandler;
-    private static final int MSG_CONNECT = 1;
-    private static final int MSG_LOGIN = 2;
-    private static final int MSG_REGISTER = 3;
-    private static final int MSG_RECONNECT = 4;
-    private static final int MSG_REQ_ROSTER = 5;
+//    private static final int MSG_CONNECT = 1;
+//    private static final int MSG_LOGIN = 2;
+//    private static final int MSG_REGISTER = 3;
+//    private static final int MSG_RECONNECT = 4;
+//    private static final int MSG_REQ_ROSTER = 5;
+//    private static final int MSG_FETCH_AVATAR = 6;
+//    private static final int MSG_UPLOAD_AVATAR = 7;
 
     static {
-        ProviderManager.getInstance().addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
+        ProviderManager pm = ProviderManager.getInstance();
+        pm.addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
+        pm.addIQProvider("vCard", "vcard-temp", new VCardProvider());
     }
 
     public static ConnectionManager getInstance() {
@@ -76,13 +88,14 @@ public class ConnectionManager {
 
         mConnThread = new HandlerThread("conn-thread");
         mConnThread.start();
-        mConnHandler = new Handler(mConnThread.getLooper(), mConnCallback);
+        mConnHandler = new Handler(mConnThread.getLooper());
 
         mSendThread = new SendThread("send-thread");
         mSendThread.start();
         mReceiveThread = new ReceiveThread("receive-thread");
         mReceiveThread.start();
 
+        SmackConfiguration.setPacketReplyTimeout(20000);
         ConnectionConfiguration config = new ConnectionConfiguration(
                 ConnectionManager.XMPP_SERVER, ConnectionManager.XMPP_PORT);
         config.setDebuggerEnabled(true);
@@ -127,179 +140,203 @@ public class ConnectionManager {
         return mConnection;
     }
 
+    private boolean checkConnection() {
+        return mConnection != null && mConnection.isConnected();
+    }
+
     public void test() {
-    	mConnection.sendPacket(new ExMsgIQ());
+        if (!checkConnection())
+            return;
+        mConnection.sendPacket(new ExMsgIQ());
     }
 
-    public void requestRoster() {
-//        mConnection.sendPacket(new RosterPacket());
-    	mConnHandler.sendEmptyMessage(MSG_REQ_ROSTER);
+    public Promise register(Activity activity, final String name, final String password) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            
+            @Override
+            public void run() {
+                doRegister(defer, name, password);
+            }
+        });
+        return defer.promise();
     }
 
-    private Handler.Callback mConnCallback = new Handler.Callback() {
-
-        @Override
-        public boolean handleMessage(android.os.Message msg) {
-            switch (msg.what) {
-            case MSG_CONNECT:
-                doConnect();
-                break;
-            case MSG_RECONNECT:
-                doReConnect();
-                break;
-            case MSG_REQ_ROSTER:
-            	mConnection.getRoster();
-            	break;
-            }
-            return true;
-        }
-
-        private void doConnect() {
-            try {
-                if (!mConnection.isConnected())
-                    mConnection.connect();
-            } catch (XMPPException e) {
-                e.printStackTrace();
-            }
-        }
-
-        private void doReConnect() {
-            try {
-                if (!mConnection.isConnected())
-                    mConnection.connect();
-                if (mConnection.isConnected()) {
-                    if (!mConnection.isAuthenticated()) {
-                        String name = Utils.getStringPref(mContext,
-                                Constants.PREF_USERNAME, null);
-                        String passwd = Utils.getStringPref(mContext,
-                                Constants.PREF_PASSWORD, null);
-                        mConnection.login(name, passwd);
-                    }
-                }
-            } catch (XMPPException e) {
-                e.printStackTrace();
-            }
-        }
-
-    };
-
-    private void doInit() {
-
+    private void doRegister(final MyDefer defer, String name, String password) {
         try {
-            mConnection.connect();
-            // connection.login("test2", "test2");
-
-            // Presence presence = new Presence(Presence.Type.available);
-            // presence.setStatus("Q我吧222");
-            // connection.sendPacket(presence);
-            //
-            // ChatManager chatmanager = connection.getChatManager();
-            // Chat newChat = chatmanager.createChat("test@192.168.1.108", new
-            // MessageListener() {
-            // public void processMessage(Chat chat, Message message) {
-            // LogUtils.d("Received message: " + message);
-            // try {
-            // chat.sendMessage(message.getBody());
-            // } catch (XMPPException e) {
-            // e.printStackTrace();
-            // }
-            // }
-            // });
-            // newChat.sendMessage("Hello from test2...");
-            //
-            // Roster roster = connection.getRoster();
-            // Collection<RosterEntry> entries = roster.getEntries();
-            // for (RosterEntry entry : entries) {
-            // LogUtils.d(entry.getUser());
-            // }
-
-        } catch (XMPPException e) {
+            if (!mConnection.isConnected())
+                mConnection.connect();
+            if (mConnection.isConnected()) {
+                AccountManager amgr = mConnection.getAccountManager();
+                amgr.createAccount(name, password);
+                DeferHelper.accept(defer);
+                return;
+            }
+        } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    public Promise register(final String name, final String password) {
-        final Defer defer = new Defer();
-        BackgroundExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    if (!mConnection.isConnected())
-                        mConnection.connect();
-                    if (mConnection.isConnected()) {
-                        AccountManager amgr = mConnection.getAccountManager();
-                        amgr.createAccount(name, password);
-                        defer.resolve();
-                        return;
-                    }
-                    defer.reject();
-                } catch (XMPPException e) {
-                    e.printStackTrace();
-                    defer.reject();
-                }
-            }
-        });
-        return defer.promise();
-    }
-
-    public Promise login(final String name, final String password) {
-        final Defer defer = new Defer();
-        BackgroundExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    if (mConnection.isAuthenticated()) {
-                        defer.resolve();
-                        return;
-                    }
-                    if (!mConnection.isConnected())
-                        mConnection.connect();
-                    if (mConnection.isConnected()) {
-                        mConnection.login(name, password);
-                        if (mConnection.isAuthenticated()) {
-                            defer.resolve();
-                            return;
-                        }
-                    }
-                    defer.reject();
-                } catch (XMPPException e) {
-                    e.printStackTrace();
-                    defer.reject();
-                }
-            }
-        });
-        return defer.promise();
-    }
-
-    public void autoLogin(final Context context) {
-        String name = Utils.getStringPref(context, Constants.PREF_USERNAME,
-                null);
-        String passwd = Utils.getStringPref(context, Constants.PREF_PASSWORD,
-                null);
-        if (name != null) {
-            login(name, passwd).done(new Func() {
-                @Override
-                public void call(Object... args) {
-                    Intent intent = new Intent(context, ChatService.class);
-                    intent.setAction(ChatService.ACTION_SHOW_TOAST);
-                    intent.putExtra(ChatService.EXTRA_TEXT, "login success");
-                    context.startService(intent);
-                }
-            }).fail(new Func() {
-                @Override
-                public void call(Object... args) {
-                    Intent intent = new Intent(context, ChatService.class);
-                    intent.setAction(ChatService.ACTION_SHOW_TOAST);
-                    intent.putExtra(ChatService.EXTRA_TEXT, "login fail");
-                    context.startService(intent);
-                }
-            });
-        }
+        DeferHelper.deny(defer);
     }
     
-    public void reconnect() {
-        mConnHandler.sendEmptyMessage(MSG_RECONNECT);
+    public Promise autoLogin(final Activity activity) {
+        String name = Utils.getStringPref(activity, Constants.PREF_USERNAME,
+                null);
+        String passwd = Utils.getStringPref(activity, Constants.PREF_PASSWORD,
+                null);
+        return login(activity, name, passwd);
     }
+    
+    public Promise login(Activity activity, final String name, final String password) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            
+            @Override
+            public void run() {
+                doLogin(defer, name, password);
+            }
+        });
+        return defer.promise();
+    }
+
+    public void doLogin(final MyDefer defer, String name, String password) {
+        try {
+            if (mConnection.isAuthenticated()) {
+                DeferHelper.accept(defer);
+                return;
+            }
+            if (!mConnection.isConnected())
+                mConnection.connect();
+            if (mConnection.isConnected()) {
+                mConnection.login(name, password);
+                if (mConnection.isAuthenticated()) {
+                    DeferHelper.accept(defer);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        DeferHelper.deny(defer);
+    }
+
+    public Promise reconnect() {
+        final MyDefer defer = new MyDefer();
+        mConnHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                String name = Utils.getStringPref(mContext,
+                        Constants.PREF_USERNAME, null);
+                String passwd = Utils.getStringPref(mContext,
+                        Constants.PREF_PASSWORD, null);
+                doLogin(defer, name, passwd);
+            }
+        });
+        return defer.promise();
+    }
+
+    public Promise requestRoster(Activity activity) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (checkConnection()) {
+                        Roster roster = mConnection.getRoster();
+                        ArrayList<String> contacts = processRoaster(roster);
+                        DeferHelper.accept(defer, contacts);
+                        return;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                DeferHelper.deny(defer);
+            }
+        });
+        return defer.promise();
+    }
+
+    private ArrayList<String> processRoaster(Roster roster) {
+        HashSet<String> set = new HashSet<String>();
+        ArrayList<String> contacts = new ArrayList<String>();
+        
+        Collection<RosterEntry> items = roster.getEntries();
+        Iterator<RosterEntry> iter = items.iterator();
+        while (iter.hasNext()) {
+            RosterEntry item = iter.next();
+            
+            String user = item.getUser();
+            String name = item.getName();
+            Collection<RosterGroup> groups = item.getGroups();
+            ItemStatus status = item.getStatus();
+            ItemType type = item.getType();
+            
+            LogUtils.d(item.toString());
+            if (set.contains(name)) {
+                continue;
+            }
+            name = StringUtils.parseName(user);
+            contacts.add(name);
+            set.add(name);
+        }
+        return contacts;
+    }
+
+    public Promise fetchAvatar(Activity activity) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                doFetchAvatar(defer);
+            }
+        });
+        return defer.promise();
+    }
+
+    private void doFetchAvatar(final MyDefer defer) {
+        try {
+            if (checkConnection()) {
+                XMPPConnection conn = getConnection();
+                VCard vcard = new VCard();
+                vcard.load(conn);
+                byte[] avatarBytes = vcard.getAvatar();
+                if (avatarBytes != null) {
+                    DeferHelper.accept(defer, avatarBytes);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        DeferHelper.deny(defer);
+    }
+
+    public Promise uploadAvatar(Activity activity, final byte[] bytes) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                doUploadAvatar(defer, bytes);
+            }
+        });
+        return defer.promise();
+    }
+
+    private void doUploadAvatar(final MyDefer defer, byte[] bytes) {
+        try {
+            if (checkConnection()) {
+                XMPPConnection conn = getConnection();
+                VCard vcard = new VCard();
+                vcard.setAvatar(bytes);
+                vcard.save(conn);
+                defer.resolve();
+                return;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        defer.reject();
+    }
+
 
     public void sendMessage(final ChatMsg chatMsg) {
         LogUtils.d("send msg, threadID:" + chatMsg.getThreadID());

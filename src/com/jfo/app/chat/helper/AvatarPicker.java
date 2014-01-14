@@ -18,8 +18,8 @@ import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentTransaction;
 
+import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.widget.MenuActivity;
-import com.libs.defer.Defer;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.util.LogUtils;
@@ -36,37 +36,27 @@ public class AvatarPicker {
     private static final int AVATAR_HEIGHT = 400;
     
     private FragmentActivity mContext;
-    private Defer mDefer;
+    private MyDefer mDefer;
     private String mPhotoFileName;
 
     public AvatarPicker(FragmentActivity context) {
         mContext = context;
     }
-    
+
     public Promise pick() {
-        mDefer = new Defer();
+        mDefer = new MyDefer(mContext);
         addWrapperFragment();
         return mDefer.promise();
     }
 
     private void deny(final Object... args) {
         removeWrapperFragment();
-        mContext.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mDefer.reject(args);
-            }
-        });
+        DeferHelper.deny(mDefer, args);
     }
     
     private void accept(final Object... args) {
         removeWrapperFragment();
-        mContext.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mDefer.resolve(args);
-            }
-        });
+        DeferHelper.accept(mDefer, args);
     }
     
     private void addWrapperFragment() {

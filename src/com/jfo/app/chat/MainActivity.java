@@ -8,6 +8,8 @@ import android.support.v4.app.FragmentTransaction;
 import android.view.View;
 
 import com.jfo.app.chat.connection.ConnectionManager;
+import com.libs.defer.Defer.Func;
+import com.libs.utils.Utils;
 import com.lidroid.xutils.ViewUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
 import com.lidroid.xutils.view.annotation.event.OnClick;
@@ -37,7 +39,17 @@ public class MainActivity extends FragmentActivity {
         ViewUtils.inject(this);
         if (savedInstanceState == null) {
             initFragment();
-            ConnectionManager.getInstance().autoLogin(this);
+            ConnectionManager.getInstance().autoLogin(this).done(new Func() {
+                @Override
+                public void call(Object... args) {
+                    Utils.showMessage(MainActivity.this, "login success");
+                }
+            }).fail(new Func() {
+                @Override
+                public void call(Object... args) {
+                    Utils.showMessage(MainActivity.this, "login fail");
+                }
+            });
         }
     }
 
@@ -87,6 +99,8 @@ public class MainActivity extends FragmentActivity {
         mCurrFragment = fragment;
         ft.show(mCurrFragment);
         ft.commit();
+        
+        mCurrFragment.onResume();
     }
     
     private void updateTab(View tab) {
@@ -105,8 +119,6 @@ public class MainActivity extends FragmentActivity {
     public void onTabContactsClick(View view) {
         updateTab(view);
         setFragment(mContactsFragment);
-        ConnectionManager.getInstance().requestRoster();
-        ConnectionManager.getInstance().test();
     }
 
     @OnClick(R.id.tab_profile)

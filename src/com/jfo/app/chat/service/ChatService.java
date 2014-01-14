@@ -1,7 +1,5 @@
 package com.jfo.app.chat.service;
 
-import java.util.ArrayList;
-
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -16,7 +14,6 @@ public class ChatService extends Service {
     public static final String ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE";
     public static final String ACTION_SHOW_TOAST = "ACTION_SHOW_TOAST";
     public static final String EXTRA_TEXT = "text";
-    public static ArrayList<String> mContacts = new ArrayList<String>();
 
     @Override
     public void onCreate() {

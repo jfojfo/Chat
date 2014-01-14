@@ -1,6 +1,9 @@
 package com.jfo.app.chat;
 
+import java.io.ByteArrayOutputStream;
+
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.view.LayoutInflater;
@@ -8,8 +11,10 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 
+import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.helper.AvatarPicker;
 import com.libs.defer.Defer.Func;
+import com.libs.utils.Utils;
 import com.lidroid.xutils.ViewUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
 import com.lidroid.xutils.view.annotation.event.OnClick;
@@ -26,6 +31,21 @@ public class ProfileFragment extends Fragment {
     @Override
     public void onActivityCreated(Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
+        ConnectionManager.getInstance().fetchAvatar(getActivity()).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                byte[] data = (byte[]) args[0];
+                Bitmap bm = BitmapFactory.decodeByteArray(data, 0, data.length);
+                mAvatar.setImageBitmap(bm);
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                Utils.showMessage(getActivity(), "fail to fetch avatar");
+            }
+        });
     }
 
     @Override
@@ -44,6 +64,25 @@ public class ProfileFragment extends Fragment {
             public void call(Object... args) {
                 Bitmap bm = (Bitmap) args[0];
                 mAvatar.setImageBitmap(bm);
+                ByteArrayOutputStream byteArrayStream = new ByteArrayOutputStream();
+                bm.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayStream);
+                uploadPhoto(byteArrayStream.toByteArray());
+            }
+        });
+    }
+
+    private void uploadPhoto(byte[] bytes) {
+        ConnectionManager.getInstance().uploadAvatar(getActivity(), bytes).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                Utils.showMessage(getActivity(), "upload photo success");
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                Utils.showMessage(getActivity(), "upload photo fail");
             }
         });
     }
