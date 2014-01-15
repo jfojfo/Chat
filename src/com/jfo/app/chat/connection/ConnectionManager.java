@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import org.apache.commons.io.FilenameUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
@@ -38,7 +39,6 @@ import org.jivesoftware.smack.util.StringUtils;
 import org.jivesoftware.smackx.filetransfer.FileTransferManager;
 import org.jivesoftware.smackx.filetransfer.OutgoingFileTransfer;
 import org.jivesoftware.smackx.packet.VCard;
-import org.jivesoftware.smackx.provider.MessageEventProvider;
 
 import android.app.Activity;
 import android.content.ContentResolver;
@@ -52,6 +52,7 @@ import android.util.Base64;
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
 import com.jfo.app.chat.connection.ex.ExMsgFile;
+import com.jfo.app.chat.connection.ex.ExMsgFileProvider;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
 import com.jfo.app.chat.helper.DeferHelper;
@@ -83,18 +84,12 @@ public class ConnectionManager {
     private Thread mDBOpThread;
     private HandlerThread mConnThread;
     private Handler mConnHandler;
-//    private static final int MSG_CONNECT = 1;
-//    private static final int MSG_LOGIN = 2;
-//    private static final int MSG_REGISTER = 3;
-//    private static final int MSG_RECONNECT = 4;
-//    private static final int MSG_REQ_ROSTER = 5;
-//    private static final int MSG_FETCH_AVATAR = 6;
-//    private static final int MSG_UPLOAD_AVATAR = 7;
+
 
     static {
         ProviderManager pm = ProviderManager.getInstance();
         pm.addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
-        pm.addExtensionProvider("x","jfo:x:file", new MessageEventProvider());
+        pm.addExtensionProvider("x","jfo:x:file", new ExMsgFileProvider());
     }
 
     public static ConnectionManager getInstance() {
@@ -372,13 +367,13 @@ public class ConnectionManager {
                 VCard vcard = new VCard();
                 vcard.setAvatar(bytes);
                 vcard.save(conn);
-                defer.resolve();
+                DeferHelper.accept(defer);
                 return;
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        defer.reject();
+        DeferHelper.deny(defer);
     }
 
     public Promise sendFile(Activity activity, final String user, final String path) {
@@ -456,7 +451,7 @@ public class ConnectionManager {
                     if (result != null) {
                         BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
                         if (uploadResult != null) {
-                            doSendMsgForFile(defer, uploadResult);
+                            doSendMsgForFile(defer, user, path, uploadResult);
                             return;
                         }
                         BDError err = G.fromJson(result, BDError.class);
@@ -473,17 +468,34 @@ public class ConnectionManager {
         DeferHelper.deny(defer);
     }
     
-    private void doSendMsgForFile(final MyDefer defer, BDUploadFileResult info) {
+    private void doSendMsgForFile(final MyDefer defer, String user, String path, BDUploadFileResult info) {
         try {
             XMPPMsg xmppMsg = new XMPPMsg();
+            xmppMsg.setFrom(mConnection.getUser());
+            xmppMsg.setTo(user + "@" + ConnectionManager.XMPP_SERVER);
+            xmppMsg.setType(Message.Type.chat);
+            xmppMsg.setBody(FilenameUtils.getName(path));
+
             ExMsgFile exMsgFile = new ExMsgFile();
             exMsgFile.setInfo(info);
             xmppMsg.addExtension(exMsgFile);
-            mSendQueue.put(xmppMsg);
+            DeferHelper.wrapDefer(xmppMsg).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    DeferHelper.accept(defer);
+                }
+            }).fail(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    DeferHelper.deny(defer);
+                }
+            });
+            putToQueue(mSendQueue, xmppMsg);
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
     }
     
     
@@ -522,13 +534,13 @@ public class ConnectionManager {
                     
                     @Override
                     public void call(Object... args) {
-                        defer.resolve();
+                        DeferHelper.accept(defer);
                     }
                 }).fail(new Func() {
                     
                     @Override
                     public void call(Object... args) {
-                        defer.reject();
+                        DeferHelper.deny(defer);
                     }
                 });
             }
@@ -554,7 +566,7 @@ public class ConnectionManager {
                 ContentResolver resolver = mContext.getContentResolver();
                 Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
                 resolver.update(uri, values, null, null);
-                defer.resolve();
+                DeferHelper.accept(defer);
             }
         }).fail(new Func() {
             
@@ -565,7 +577,7 @@ public class ConnectionManager {
                 ContentResolver resolver = mContext.getContentResolver();
                 Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
                 resolver.update(uri, values, null, null);
-                defer.reject();
+                DeferHelper.accept(defer);
             }
         });
         putToQueue(mSendQueue, xmppMsg);
@@ -642,12 +654,12 @@ public class ConnectionManager {
                         LogUtils.e("bad connection, need to reconnect");
                         reconnect();
                         if (defer != null) {
-                            defer.reject();
+                            DeferHelper.deny(defer);
                         }
                         continue;
                     }
                     if (defer != null) {
-                        defer.resolve();
+                        DeferHelper.accept(defer);
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
