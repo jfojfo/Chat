@@ -99,10 +99,16 @@ public class ChatFragment extends Fragment {
         unregisterForContextMenu(mList);
         getLoaderManager().destroyLoader(0);
         if (mThreadID != 0) {
-            ContentValues values = new ContentValues();
-            values.put(MessageColumns.READ, 1);
-            getActivity().getContentResolver().update(MessageColumns.CONTENT_URI, 
-                    values, MessageColumns.THREAD_ID + "=" + mThreadID, null);
+            ConnectionManager.getInstance().dbOp(null, new Runnable() {
+                
+                @Override
+                public void run() {
+                    ContentValues values = new ContentValues();
+                    values.put(MessageColumns.READ, 1);
+                    getActivity().getContentResolver().update(MessageColumns.CONTENT_URI, 
+                            values, MessageColumns.THREAD_ID + "=" + mThreadID, null);
+                }
+            });
         }
     }
 
@@ -119,14 +125,24 @@ public class ChatFragment extends Fragment {
     @OnClick(R.id.btnSend)
     public void onSend(View view) {
         String text = mEdit.getText().toString();
-        ChatMsg chatMsg = new ChatMsg();
+        final ChatMsg chatMsg = new ChatMsg();
         chatMsg.setAddress(mUser);
         chatMsg.setBody(text);
-        if (mThreadID == 0) {
-            mThreadID = ThreadsHelper.getOrCreateThreadId(getActivity(), mUser);
-        }
         chatMsg.setThreadID(mThreadID);
-        ConnectionManager.getInstance().sendMessage(chatMsg);
+        ConnectionManager.getInstance().sendMessage(getActivity(), chatMsg).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                mThreadID = chatMsg.getThreadID();
+                LogUtils.d("send msg success");
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                LogUtils.d("send msg fail");
+            }
+        });
         mEdit.setText("");
     }
     
@@ -185,7 +201,19 @@ public class ChatFragment extends Fragment {
             chatMsg.setAddress(address);
             chatMsg.setBody(body);
             chatMsg.setThreadID(threadID);
-            ConnectionManager.getInstance().resendMessage(chatMsg);
+            ConnectionManager.getInstance().resendMessage(getActivity(), chatMsg).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    LogUtils.d("resend msg success");
+                }
+            }).fail(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    LogUtils.d("resend msg fail");
+                }
+            });
             break;
         }
         }

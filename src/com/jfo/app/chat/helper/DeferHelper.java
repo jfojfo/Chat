@@ -1,13 +1,16 @@
 package com.jfo.app.chat.helper;
 
 import java.lang.ref.WeakReference;
+import java.util.concurrent.ConcurrentHashMap;
 
 import android.app.Activity;
 
 import com.libs.defer.Defer;
+import com.libs.defer.Defer.Promise;
 import com.lidroid.xutils.util.LogUtils;
 
 public class DeferHelper {
+    private static ConcurrentHashMap<Object, MyDefer> mDeferMap = new ConcurrentHashMap<Object, MyDefer>();
 
     public static class MyDefer extends Defer {
         private WeakReference<Activity> mActivityRef = null;
@@ -56,6 +59,20 @@ public class DeferHelper {
         } else {
             defer.reject(args);
         }
+    }
+
+    public static Promise wrapDefer(Object key) {
+        return wrapDefer(key, null);
+    }
+
+    public static Promise wrapDefer(Object key, Activity activity) {
+        MyDefer defer = new MyDefer(activity);
+        mDeferMap.put(key, defer);
+        return defer.promise();
+    }
+
+    public static MyDefer unwrapDefer(Object key) {
+        return mDeferMap.remove(key);
     }
 
 }

@@ -1,8 +1,5 @@
 package com.jfo.app.chat.connection;
 
-import org.jivesoftware.smack.packet.Message;
-import org.jivesoftware.smack.util.StringUtils;
-
 import com.jfo.app.chat.helper.G;
 
 public class ChatMsg {
@@ -12,7 +9,7 @@ public class ChatMsg {
     private int type;
     private int read;
     private int status;
-    
+
     private long msgID;
     private long threadID;
 
@@ -80,13 +77,6 @@ public class ChatMsg {
         this.status = status;
     }
 
-    public static ChatMsg from(Message message) {
-        ChatMsg chatMsg = new ChatMsg();
-        chatMsg.address = StringUtils.parseName(message.getFrom());
-        chatMsg.body = message.getBody();
-        return chatMsg;
-    }
-    
     public String toJson() {
         return G.toJson(this);
     }
