@@ -1,14 +1,24 @@
 package com.jfo.app.chat.connection;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.OutputStream;
+import java.io.FileInputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.WritableByteChannel;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.HttpClient;
+import org.apache.http.impl.client.DefaultHttpClient;
 import org.jivesoftware.smack.AccountManager;
 import org.jivesoftware.smack.ConnectionConfiguration;
 import org.jivesoftware.smack.ConnectionListener;
@@ -25,14 +35,12 @@ import org.jivesoftware.smack.packet.RosterPacket.ItemStatus;
 import org.jivesoftware.smack.packet.RosterPacket.ItemType;
 import org.jivesoftware.smack.provider.ProviderManager;
 import org.jivesoftware.smack.util.StringUtils;
-import org.jivesoftware.smackx.filetransfer.FileTransfer;
+import org.jivesoftware.smackx.MessageEventManager;
 import org.jivesoftware.smackx.filetransfer.FileTransferManager;
 import org.jivesoftware.smackx.filetransfer.OutgoingFileTransfer;
-import org.jivesoftware.smackx.filetransfer.FileTransfer.Status;
-import org.jivesoftware.smackx.filetransfer.OutgoingFileTransfer.NegotiationProgress;
+import org.jivesoftware.smackx.packet.MessageEvent;
 import org.jivesoftware.smackx.packet.VCard;
-import org.jivesoftware.smackx.provider.StreamInitiationProvider;
-import org.jivesoftware.smackx.provider.VCardProvider;
+import org.jivesoftware.smackx.provider.MessageEventProvider;
 
 import android.app.Activity;
 import android.content.ContentResolver;
@@ -41,17 +49,25 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Base64;
 
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
+import com.jfo.app.chat.connection.ex.ExMsgFile;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
 import com.jfo.app.chat.helper.DeferHelper;
 import com.jfo.app.chat.helper.DeferHelper.MyDefer;
+import com.jfo.app.chat.helper.G;
+import com.jfo.app.chat.proto.BDError;
+import com.jfo.app.chat.proto.BDUploadFileResult;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
+import com.lidroid.xutils.http.RequestParams;
+import com.lidroid.xutils.http.callback.StringDownloadHandler;
+import com.lidroid.xutils.http.client.HttpRequest;
 import com.lidroid.xutils.util.LogUtils;
 
 public class ConnectionManager {
@@ -77,6 +93,7 @@ public class ConnectionManager {
     static {
         ProviderManager pm = ProviderManager.getInstance();
         pm.addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
+        pm.addExtensionProvider("x","jfo:x:file", new MessageEventProvider());
     }
 
     public static ConnectionManager getInstance() {
@@ -370,7 +387,8 @@ public class ConnectionManager {
 
                     @Override
                     public void run() {
-                        doSendFile(defer, user, path);
+//                        doSendFile(defer, user, path);
+                        doSendFile2(defer, user, path);
                     }
                 });
             }
@@ -400,6 +418,71 @@ public class ConnectionManager {
         DeferHelper.deny(defer);
     }
 
+    private void doSendFile2(final MyDefer defer, String user, String path) {
+        try {
+            if (checkConnection()) {
+                XMPPConnection conn = getConnection();
+                
+                File file = new File(path);
+                FileInputStream fis = new FileInputStream(file);
+                FileChannel channel = fis.getChannel();
+                ByteArrayOutputStream os = new ByteArrayOutputStream();
+                WritableByteChannel wchannel = Channels.newChannel(os);
+                channel.transferTo(0, file.length(), wchannel);
+                channel.close();
+                wchannel.close();
+                byte[] data = os.toByteArray();
+                String encoded = Base64.encodeToString(data, 0);
+
+                RequestParams params = new RequestParams();
+                String name = UUID.randomUUID().toString();
+                params.addQueryStringParameter("path", "/attachment/file/" + name);
+                params.addBodyParameter("file", encoded);
+                
+                HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.POST, Constants.URL_UPLOAD_FILE_OLD);
+                request.setRequestParams(params, null);
+                HttpClient client = new DefaultHttpClient();
+                HttpResponse resp = client.execute(request);
+                
+                int code = resp.getStatusLine().getStatusCode();
+                LogUtils.d("code: " + code);
+                if (code == HttpStatus.SC_OK) {
+                    HttpEntity entity = resp.getEntity();
+                    String result = new StringDownloadHandler().handleEntity(entity, null, "utf8");
+                    LogUtils.d("result: " + result);
+                    if (result != null) {
+                        BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
+                        if (uploadResult != null) {
+                            doSendMsgForFile(defer, uploadResult);
+                            return;
+                        }
+                        BDError err = G.fromJson(result, BDError.class);
+                        if (err != null) {
+                            DeferHelper.deny(defer, err.error_msg + "(code:" + err.error_code + ")");
+                            return;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        DeferHelper.deny(defer);
+    }
+    
+    private void doSendMsgForFile(final MyDefer defer, BDUploadFileResult info) {
+        try {
+            Message chatMsg = new Message();
+            ExMsgFile exMsgFile = new ExMsgFile();
+            exMsgFile.setInfo(info);
+            chatMsg.addExtension(exMsgFile);
+            mSendQueue.put(chatMsg);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        DeferHelper.deny(defer);
+    }
+    
     public void sendMessage(final ChatMsg chatMsg) {
         LogUtils.d("send msg, threadID:" + chatMsg.getThreadID());
         ContentValues values = new ContentValues();
