@@ -1,5 +1,7 @@
 package com.jfo.app.chat.connection;
 
+import org.jivesoftware.smack.packet.Message;
+
 import com.jfo.app.chat.helper.G;
 
 public class ChatMsg {
@@ -81,4 +83,12 @@ public class ChatMsg {
         return G.toJson(this);
     }
 
+    public XMPPMsg toXMPP() {
+        final XMPPMsg xmppMsg = new XMPPMsg();
+        xmppMsg.setFrom(ConnectionManager.getInstance().getConnection().getUser());
+        xmppMsg.setTo(getAddress() + "@" + ConnectionManager.XMPP_SERVER);
+        xmppMsg.setBody(getBody());
+        xmppMsg.setType(Message.Type.chat);
+        return xmppMsg;
+    }
 }
