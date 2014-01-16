@@ -6,12 +6,12 @@ import org.xmlpull.v1.XmlPullParser;
 
 import com.jfo.app.chat.proto.BDUploadFileResult;
 
-public class ExMsgFileProvider implements PacketExtensionProvider {
+public class XMPPFileExtensionProvider implements PacketExtensionProvider {
 
     @Override
     public PacketExtension parseExtension(XmlPullParser parser)
             throws Exception {
-        ExMsgFile exMsgFile = new ExMsgFile();
+        XMPPFileExtension exMsgFile = new XMPPFileExtension();
         BDUploadFileResult info = new BDUploadFileResult();
 
         boolean done = false;

@@ -4,7 +4,7 @@ import org.jivesoftware.smack.packet.PacketExtension;
 
 import com.jfo.app.chat.proto.BDUploadFileResult;
 
-public class ExMsgFile implements PacketExtension {
+public class XMPPFileExtension implements PacketExtension {
     private BDUploadFileResult info;
 
     public BDUploadFileResult getInfo() {

@@ -51,8 +51,8 @@ import android.util.Base64;
 
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
-import com.jfo.app.chat.connection.ex.ExMsgFile;
-import com.jfo.app.chat.connection.ex.ExMsgFileProvider;
+import com.jfo.app.chat.connection.ex.XMPPFileExtension;
+import com.jfo.app.chat.connection.ex.XMPPFileExtensionProvider;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
 import com.jfo.app.chat.helper.DeferHelper;
@@ -89,7 +89,7 @@ public class ConnectionManager {
     static {
         ProviderManager pm = ProviderManager.getInstance();
         pm.addIQProvider("query", "jfo:iq:exmsg", new ExMsgIQProvider());
-        pm.addExtensionProvider("x","jfo:x:file", new ExMsgFileProvider());
+        pm.addExtensionProvider("x","jfo:x:file", new XMPPFileExtensionProvider());
     }
 
     public static ConnectionManager getInstance() {
@@ -376,7 +376,7 @@ public class ConnectionManager {
         DeferHelper.deny(defer);
     }
 
-    public Promise sendFile(Activity activity, final String user, final String path) {
+    public Promise sendFile(Activity activity, final FileMsg fileMsg) {
         final MyDefer defer = new MyDefer(activity);
         mConnHandler.post(new Runnable() {
             @Override
@@ -386,7 +386,7 @@ public class ConnectionManager {
                     @Override
                     public void run() {
 //                        doSendFile(defer, user, path);
-                        doSendFile2(defer, user, path);
+                        doSendFile2(defer, fileMsg);
                     }
                 });
             }
@@ -416,12 +416,12 @@ public class ConnectionManager {
         DeferHelper.deny(defer);
     }
 
-    private void doSendFile2(final MyDefer defer, String user, String path) {
+    private void doSendFile2(final MyDefer defer, FileMsg fileMsg) {
         try {
             if (checkConnection()) {
                 XMPPConnection conn = getConnection();
                 
-                File file = new File(path);
+                File file = new File(fileMsg.getFile());
                 FileInputStream fis = new FileInputStream(file);
                 FileChannel channel = fis.getChannel();
                 ByteArrayOutputStream os = new ByteArrayOutputStream();
@@ -451,7 +451,8 @@ public class ConnectionManager {
                     if (result != null) {
                         BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
                         if (uploadResult != null) {
-                            doSendMsgForFile(defer, user, path, uploadResult);
+                            fileMsg.setInfo(uploadResult);
+                            doSendMsgForFile(defer, fileMsg);
                             return;
                         }
                         BDError err = G.fromJson(result, BDError.class);
@@ -468,17 +469,18 @@ public class ConnectionManager {
         DeferHelper.deny(defer);
     }
     
-    private void doSendMsgForFile(final MyDefer defer, String user, String path, BDUploadFileResult info) {
+    private void doSendMsgForFile(final MyDefer defer, final FileMsg fileMsg) {
+        LogUtils.d("send file, threadID:" + fileMsg.getThreadID());
         try {
             XMPPMsg xmppMsg = new XMPPMsg();
             xmppMsg.setFrom(mConnection.getUser());
-            xmppMsg.setTo(user + "@" + ConnectionManager.XMPP_SERVER);
+            xmppMsg.setTo(fileMsg.getAddress() + "@" + ConnectionManager.XMPP_SERVER);
             xmppMsg.setType(Message.Type.chat);
-            xmppMsg.setBody(FilenameUtils.getName(path));
+            xmppMsg.setBody(FilenameUtils.getName(fileMsg.getFile()));
 
-            ExMsgFile exMsgFile = new ExMsgFile();
-            exMsgFile.setInfo(info);
-            xmppMsg.addExtension(exMsgFile);
+            XMPPFileExtension xmppFile = new XMPPFileExtension();
+            xmppFile.setInfo(fileMsg.getInfo());
+            xmppMsg.addExtension(xmppFile);
             DeferHelper.wrapDefer(xmppMsg).done(new Func() {
                 
                 @Override

@@ -26,8 +26,8 @@ import android.widget.TextView;
 
 import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
+import com.jfo.app.chat.connection.FileMsg;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
-import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
 import com.libs.defer.Defer.Func;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.ViewUtils;
@@ -148,7 +148,11 @@ public class ChatFragment extends Fragment {
     
     @OnClick(R.id.btnSendFile)
     public void onSendFile(View view) {
-        ConnectionManager.getInstance().sendFile(getActivity(), mUser, "/sdcard/test.txt").done(new Func() {
+        FileMsg fileMsg = new FileMsg();
+        fileMsg.setAddress(mUser);
+        fileMsg.setThreadID(mThreadID);
+        fileMsg.setFile("/sdcard/test.txt");
+        ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
             
             @Override
             public void call(Object... args) {
