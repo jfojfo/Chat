@@ -57,6 +57,7 @@ import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
 import com.jfo.app.chat.helper.DeferHelper;
 import com.jfo.app.chat.helper.DeferHelper.MyDefer;
+import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.G;
 import com.jfo.app.chat.proto.BDError;
 import com.jfo.app.chat.proto.BDUploadFileResult;
@@ -502,10 +503,9 @@ public class ConnectionManager {
     
     
     // TODO dbOp.done().fail() is useless! no place to call defer.resolve() or defer.reject()
-    public Promise dbOp(Activity activity, final Runnable action) {
-        final MyDefer defer = new MyDefer(activity);
+    public Promise dbOp(RunnableWithDefer action) {
         putToQueue(mDBOpQueue, action);
-        return defer.promise();
+        return action.getDefer().promise();
     }
     
     public Promise sendMessage(Activity activity, final ChatMsg chatMsg) {
@@ -628,7 +628,7 @@ public class ConnectionManager {
         public void run() {
             while (!isQuit()) {
                 try {
-                    Runnable action = mDBOpQueue.take();
+                    Runnable action = takeFromQueue(mDBOpQueue);
                     action.run();
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -681,7 +681,7 @@ public class ConnectionManager {
         public void run() {
             while (!isQuit()) {
                 try {
-                    final Packet packet = mIncommingMsgQueue.take();
+                    final Packet packet = takeFromQueue(mIncommingMsgQueue);
                     final Message message = (Message) packet;
 
                     putToQueue(mDBOpQueue, new Runnable() {
@@ -703,7 +703,7 @@ public class ConnectionManager {
                             resolver.insert(MessageColumns.CONTENT_URI, values);
                         }
                     });
-                } catch (InterruptedException e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
             }

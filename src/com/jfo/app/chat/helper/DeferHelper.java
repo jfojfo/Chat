@@ -25,6 +25,26 @@ public class DeferHelper {
         }
     }
 
+    public static abstract class RunnableWithDefer implements Runnable {
+        private MyDefer mDefer;
+
+        public RunnableWithDefer() {
+            mDefer = new MyDefer();
+        }
+
+        public RunnableWithDefer(MyDefer defer) {
+            mDefer = defer;
+        }
+
+        public RunnableWithDefer(Activity activity) {
+            mDefer = new MyDefer(activity);
+        }
+
+        public MyDefer getDefer() {
+            return mDefer;
+        }
+    }
+
     public static void accept(final MyDefer defer, final Object... args) {
         Activity activity = defer.mActivityRef.get();
         if (activity != null) {

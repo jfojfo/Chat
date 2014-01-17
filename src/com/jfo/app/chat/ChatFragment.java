@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.LoaderManager.LoaderCallbacks;
 import android.support.v4.content.CursorLoader;
 import android.support.v4.content.Loader;
@@ -27,6 +28,8 @@ import android.widget.TextView;
 import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.connection.FileMsg;
+import com.jfo.app.chat.helper.DeferHelper;
+import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.libs.defer.Defer.Func;
 import com.libs.utils.Utils;
@@ -97,19 +100,34 @@ public class ChatFragment extends Fragment {
     public void onDestroy() {
         super.onDestroy();
         unregisterForContextMenu(mList);
-        getLoaderManager().destroyLoader(0);
+        // TODO move following code to proper place
         if (mThreadID != 0) {
-            ConnectionManager.getInstance().dbOp(null, new Runnable() {
+            ConnectionManager.getInstance().dbOp(new RunnableWithDefer() {
                 
                 @Override
                 public void run() {
-                    ContentValues values = new ContentValues();
-                    values.put(MessageColumns.READ, 1);
-                    getActivity().getContentResolver().update(MessageColumns.CONTENT_URI, 
-                            values, MessageColumns.THREAD_ID + "=" + mThreadID, null);
+                    FragmentActivity activity = getActivity();
+                    if (activity != null /*&& !activity.isFinishing()*/) {
+                        // mark all as read
+                        ContentValues values = new ContentValues();
+                        values.put(MessageColumns.READ, 1);
+                        activity.getContentResolver().update(MessageColumns.CONTENT_URI, 
+                                values, MessageColumns.THREAD_ID + "=" + mThreadID, null);
+                        DeferHelper.accept(getDefer());
+                    } else {
+                        LogUtils.d("activity finished");
+                        DeferHelper.deny(getDefer());
+                    }
+                }
+            }).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    LogUtils.d("update read status done");
                 }
             });
         }
+        getLoaderManager().destroyLoader(0);
     }
 
     @Override
@@ -312,6 +330,11 @@ public class ChatFragment extends Fragment {
         @Override
         public void onLoadFinished(Loader<Cursor> loader, Cursor cursor) {
             LogUtils.d("onLoadFinished()");
+            FragmentActivity activity = getActivity();
+            if (activity == null || activity.isFinishing()) {
+                LogUtils.d("activity finished");
+                return;
+            }
             mAdapter.changeCursor(cursor);
             if (mThreadID == 0 && cursor != null && cursor.getCount() > 0) {
                 cursor.moveToFirst();
