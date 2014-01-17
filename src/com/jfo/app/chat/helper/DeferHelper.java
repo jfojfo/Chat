@@ -23,6 +23,64 @@ public class DeferHelper {
         public MyDefer() {
             this(null);
         }
+
+        @Override
+        public synchronized void resolve(final Object... args) {
+            Activity activity = mActivityRef.get();
+            if (activity != null) {
+                if (activity.isFinishing()) {
+                    LogUtils.w("is finishing");
+                    return;
+                }
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        MyDefer.super.resolve(args);
+                    }
+                });
+            } else {
+                super.resolve(args);
+            }
+        }
+
+        @Override
+        public synchronized void reject(final Object... args) {
+            Activity activity = mActivityRef.get();
+            if (activity != null) {
+                if (activity.isFinishing()) {
+                    LogUtils.w("is finishing");
+                    return;
+                }
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        MyDefer.super.reject(args);
+                    }
+                });
+            } else {
+                super.reject(args);
+            }
+        }
+
+        @Override
+        public synchronized void notify(final Object... args) {
+            Activity activity = mActivityRef.get();
+            if (activity != null) {
+                if (activity.isFinishing()) {
+                    LogUtils.w("is finishing");
+                    return;
+                }
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        MyDefer.super.notify(args);
+                    }
+                });
+            } else {
+                super.notify(args);
+            }
+        }
+
     }
 
     public static abstract class RunnableWithDefer implements Runnable {
@@ -42,42 +100,6 @@ public class DeferHelper {
 
         public MyDefer getDefer() {
             return mDefer;
-        }
-    }
-
-    public static void accept(final MyDefer defer, final Object... args) {
-        Activity activity = defer.mActivityRef.get();
-        if (activity != null) {
-            if (activity.isFinishing()) {
-                LogUtils.w("is finishing");
-                return;
-            }
-            activity.runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    defer.resolve(args);
-                }
-            });
-        } else {
-            defer.resolve(args);
-        }
-    }
-
-    public static void deny(final MyDefer defer, final Object... args) {
-        Activity activity = defer.mActivityRef.get();
-        if (activity != null) {
-            if (activity.isFinishing()) {
-                LogUtils.w("is finishing");
-                return;
-            }
-            activity.runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    defer.reject(args);
-                }
-            });
-        } else {
-            defer.reject(args);
         }
     }
 

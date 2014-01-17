@@ -197,13 +197,13 @@ public class ConnectionManager {
             if (mConnection.isConnected()) {
                 AccountManager amgr = mConnection.getAccountManager();
                 amgr.createAccount(name, password);
-                DeferHelper.accept(defer);
+                defer.resolve();
                 return;
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
+        defer.reject();
     }
     
     public Promise autoLogin(final Activity activity) {
@@ -229,7 +229,7 @@ public class ConnectionManager {
     public void doLogin(final MyDefer defer, String name, String password) {
         try {
             if (mConnection.isAuthenticated()) {
-                DeferHelper.accept(defer);
+                defer.resolve();
                 return;
             }
             if (!mConnection.isConnected())
@@ -237,14 +237,14 @@ public class ConnectionManager {
             if (mConnection.isConnected()) {
                 mConnection.login(name, password);
                 if (mConnection.isAuthenticated()) {
-                    DeferHelper.accept(defer);
+                    defer.resolve();
                     return;
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
+        defer.reject();
     }
 
     public Promise reconnect() {
@@ -271,13 +271,13 @@ public class ConnectionManager {
                     if (checkConnection()) {
                         Roster roster = mConnection.getRoster();
                         ArrayList<String> contacts = processRoaster(roster);
-                        DeferHelper.accept(defer, contacts);
+                        defer.resolve(contacts);
                         return;
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-                DeferHelper.deny(defer);
+                defer.reject();
             }
         });
         return defer.promise();
@@ -334,14 +334,14 @@ public class ConnectionManager {
                 vcard.load(conn);
                 byte[] avatarBytes = vcard.getAvatar();
                 if (avatarBytes != null) {
-                    DeferHelper.accept(defer, avatarBytes);
+                    defer.resolve(avatarBytes);
                     return;
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
+        defer.reject();
     }
 
     public Promise uploadAvatar(Activity activity, final byte[] bytes) {
@@ -368,13 +368,13 @@ public class ConnectionManager {
                 VCard vcard = new VCard();
                 vcard.setAvatar(bytes);
                 vcard.save(conn);
-                DeferHelper.accept(defer);
+                defer.resolve();
                 return;
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
+        defer.reject();
     }
 
     public Promise sendFile(Activity activity, final FileMsg fileMsg) {
@@ -408,13 +408,13 @@ public class ConnectionManager {
                     while (!transfer.isDone()) {
                         
                     }
-                    DeferHelper.accept(defer);
+                    defer.resolve();
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
+        defer.reject();
     }
 
     private void doSendFile2(final MyDefer defer, FileMsg fileMsg) {
@@ -458,7 +458,7 @@ public class ConnectionManager {
                         }
                         BDError err = G.fromJson(result, BDError.class);
                         if (err != null) {
-                            DeferHelper.deny(defer, err.error_msg + "(code:" + err.error_code + ")");
+                            defer.reject(err.error_msg + "(code:" + err.error_code + ")");
                             return;
                         }
                     }
@@ -467,7 +467,7 @@ public class ConnectionManager {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        DeferHelper.deny(defer);
+        defer.reject();
     }
     
     private void doSendMsgForFile(final MyDefer defer, final FileMsg fileMsg) {
@@ -486,13 +486,13 @@ public class ConnectionManager {
                 
                 @Override
                 public void call(Object... args) {
-                    DeferHelper.accept(defer);
+                    defer.resolve();
                 }
             }).fail(new Func() {
                 
                 @Override
                 public void call(Object... args) {
-                    DeferHelper.deny(defer);
+                    defer.reject();
                 }
             });
             putToQueue(mSendQueue, xmppMsg);
@@ -536,13 +536,13 @@ public class ConnectionManager {
                     
                     @Override
                     public void call(Object... args) {
-                        DeferHelper.accept(defer);
+                        defer.resolve();
                     }
                 }).fail(new Func() {
                     
                     @Override
                     public void call(Object... args) {
-                        DeferHelper.deny(defer);
+                        defer.reject();
                     }
                 });
             }
@@ -568,7 +568,7 @@ public class ConnectionManager {
                 ContentResolver resolver = mContext.getContentResolver();
                 Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
                 resolver.update(uri, values, null, null);
-                DeferHelper.accept(defer);
+                defer.resolve();
             }
         }).fail(new Func() {
             
@@ -579,7 +579,7 @@ public class ConnectionManager {
                 ContentResolver resolver = mContext.getContentResolver();
                 Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
                 resolver.update(uri, values, null, null);
-                DeferHelper.accept(defer);
+                defer.resolve();
             }
         });
         putToQueue(mSendQueue, xmppMsg);
@@ -656,12 +656,12 @@ public class ConnectionManager {
                         LogUtils.e("bad connection, need to reconnect");
                         reconnect();
                         if (defer != null) {
-                            DeferHelper.deny(defer);
+                            defer.reject();
                         }
                         continue;
                     }
                     if (defer != null) {
-                        DeferHelper.accept(defer);
+                        defer.resolve();
                     }
                 } catch (Exception e) {
                     e.printStackTrace();

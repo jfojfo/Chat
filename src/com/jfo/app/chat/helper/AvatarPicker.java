@@ -20,6 +20,7 @@ import android.support.v4.app.FragmentTransaction;
 
 import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.widget.MenuActivity;
+import com.libs.defer.Defer;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.util.LogUtils;
@@ -36,7 +37,7 @@ public class AvatarPicker {
     private static final int AVATAR_HEIGHT = 400;
     
     private FragmentActivity mContext;
-    private MyDefer mDefer;
+    private Defer mDefer;
     private String mPhotoFileName;
 
     public AvatarPicker(FragmentActivity context) {
@@ -51,12 +52,12 @@ public class AvatarPicker {
 
     private void deny(final Object... args) {
         removeWrapperFragment();
-        DeferHelper.deny(mDefer, args);
+        mDefer.reject(args);
     }
     
     private void accept(final Object... args) {
         removeWrapperFragment();
-        DeferHelper.accept(mDefer, args);
+        mDefer.resolve(args);
     }
     
     private void addWrapperFragment() {

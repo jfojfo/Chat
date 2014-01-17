@@ -28,7 +28,6 @@ import android.widget.TextView;
 import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.connection.FileMsg;
-import com.jfo.app.chat.helper.DeferHelper;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.libs.defer.Defer.Func;
@@ -113,10 +112,10 @@ public class ChatFragment extends Fragment {
                         values.put(MessageColumns.READ, 1);
                         activity.getContentResolver().update(MessageColumns.CONTENT_URI, 
                                 values, MessageColumns.THREAD_ID + "=" + mThreadID, null);
-                        DeferHelper.accept(getDefer());
+                        getDefer().resolve();
                     } else {
                         LogUtils.d("activity finished");
-                        DeferHelper.deny(getDefer());
+                        getDefer().reject();
                     }
                 }
             }).done(new Func() {
