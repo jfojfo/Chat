@@ -73,6 +73,13 @@ public final class ChatDataStructs {
         public static final String PROTOCOL = "protocol";
 
         /**
+         * <P>Type: INTEGER</P>
+         */
+        public static final String MEDIA_TYPE = "media_type";
+        public static final int MEDIA_NORMAL = 0;
+        public static final int MEDIA_FILE = 1;
+
+        /**
          * 扩展字段
          */
         public static final String EXPAND_DATA1 = "e_d1";
@@ -92,6 +99,7 @@ public final class ChatDataStructs {
                 + TYPE + " INTEGER, "
                 + STATUS + " INTEGER, "
                 + PROTOCOL + " TEXT, "
+                + MEDIA_TYPE + " INTEGER DEFAULT 0, "
                 + EXPAND_DATA1 + " TEXT, "
                 + EXPAND_DATA2 + " TEXT, "
                 + EXPAND_DATA3 + " TEXT, "
@@ -193,6 +201,81 @@ public final class ChatDataStructs {
             LogUtils.e("getOrCreateThreadId failed with uri " + uri.toString());
             throw new IllegalArgumentException("Unable to find or allocate a thread ID.");
         }
+    }
+
+    public interface AttachmentsColumns extends BaseColumns {
+        public static final String TABLE_NAME = "attachments";
+
+        public static final Uri CONTENT_URI = Uri
+                .parse("content://" + AUTHORITY + "/" + TABLE_NAME);
+
+        public static final String CONTENT_TYPE = "vnd.android.cursor.dir/vnd.jfo.app.chat.attachment";
+
+        /**
+         * <P>Type: STRING</P>
+         */
+        public static final String NAME = "name";
+
+        /**
+         * <P>Type: STRING</P>
+         */
+        public static final String DESC = "desc";
+
+        /**
+         * <P>Type: STRING</P>
+         */
+        public static final String URL = "url";
+
+        /**
+         * <P>Type: INTEGER</P>
+         */
+        public static final String SIZE = "size";
+
+        /**
+         * <P>Type: INTEGER</P>
+         */
+        public static final String CREATE_TIME = "create_time";
+
+        /**
+         * <P>Type: INTEGER</P>
+         */
+        public static final String MODIFY_TIME = "modify_time";
+
+        /**
+         * <P>Type: STRING</P>
+         */
+        public static final String MD5 = "md5";
+        
+        /**
+         * <P>Type: INTEGER</P>
+         */
+        public static final String TYPE = "type";
+        public static final int TYPE_FILE = 0;
+
+        /**
+         * <P>Type: INTEGER</P>
+         */
+        public static final String MESSAGE_ID = "message_id";
+
+        /**
+         * <P>Type: STRING</P>
+         */
+        public static final String LOCAL_PATH = "local_path";
+
+        
+        public static final String SQL_CREATE = "CREATE TABLE IF NOT EXISTS " + TABLE_NAME
+                + " (" + _ID + " INTEGER PRIMARY KEY AUTOINCREMENT, "
+                + NAME + " TEXT, "
+                + DESC + " TEXT, "
+                + URL + " TEXT, "
+                + MD5 + " TEXT, "
+                + SIZE + " INTEGER, "
+                + CREATE_TIME + " INTEGER, "
+                + MODIFY_TIME + " INTEGER, "
+                + TYPE + " INTEGER DEFAULT 0, "
+                + MESSAGE_ID + " INTEGER, "
+                + LOCAL_PATH + " TEXT "
+                + ");";
     }
 
 }

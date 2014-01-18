@@ -61,6 +61,7 @@ import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.G;
 import com.jfo.app.chat.proto.BDError;
 import com.jfo.app.chat.proto.BDUploadFileResult;
+import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
 import com.libs.defer.Defer.Func;
@@ -379,23 +380,11 @@ public class ConnectionManager {
 
     public Promise sendFile(Activity activity, final FileMsg fileMsg) {
         final MyDefer defer = new MyDefer(activity);
-        mConnHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                BackgroundExecutor.execute(new Runnable() {
-
-                    @Override
-                    public void run() {
-//                        doSendFile(defer, user, path);
-                        doSendFile2(defer, fileMsg);
-                    }
-                });
-            }
-        });
+        doSendFile(defer, fileMsg);
         return defer.promise();
     }
     
-    private void doSendFile(final MyDefer defer, String user, String path) {
+    private void doSendFileOld(final MyDefer defer, String user, String path) {
         try {
             if (checkConnection()) {
                 XMPPConnection conn = getConnection();
@@ -417,50 +406,99 @@ public class ConnectionManager {
         defer.reject();
     }
 
-    private void doSendFile2(final MyDefer defer, FileMsg fileMsg) {
-        try {
-            if (checkConnection()) {
-                XMPPConnection conn = getConnection();
-                
-                File file = new File(fileMsg.getFile());
-                FileInputStream fis = new FileInputStream(file);
-                FileChannel channel = fis.getChannel();
-                ByteArrayOutputStream os = new ByteArrayOutputStream();
-                WritableByteChannel wchannel = Channels.newChannel(os);
-                channel.transferTo(0, file.length(), wchannel);
-                channel.close();
-                wchannel.close();
-                byte[] data = os.toByteArray();
-                String encoded = Base64.encodeToString(data, 0);
+    private void doSendFile(final MyDefer defer, final FileMsg fileMsg) {
+        dbOp(new RunnableWithDefer() {
+            
+            @Override
+            public void run() {
+                LogUtils.d("send file, threadID:" + fileMsg.getThreadID());
+                ContentValues values = new ContentValues();
+                ChatMsg chatMsg = fileMsg;
+                if (chatMsg.getThreadID() == 0) {
+                    chatMsg.setThreadID(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
+                    LogUtils.d("send file, create new threadID:" + chatMsg.getThreadID());
+                }
+                values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
+                values.put(MessageColumns.BODY, chatMsg.getBody());
+                values.put(MessageColumns.DATE, System.currentTimeMillis());
+                values.put(MessageColumns.READ, 1);
+                values.put(MessageColumns.TYPE, MessageColumns.TYPE_OUTBOX);
+                values.put(MessageColumns.STATUS, MessageColumns.STATUS_SENDING);
+                values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
+                values.put(MessageColumns.MEDIA_TYPE, MessageColumns.MEDIA_FILE);
+                ContentResolver resolver = mContext.getContentResolver();
+                Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+                LogUtils.d(uri.toString());
+                chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
+                getDefer().resolve();
+            }
+        }).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                mConnHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        BackgroundExecutor.execute(new Runnable() {
 
-                RequestParams params = new RequestParams();
-                String name = UUID.randomUUID().toString();
-                params.addQueryStringParameter("path", "/attachment/file/" + name);
-                params.addBodyParameter("file", encoded);
-                
-                HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.POST, Constants.URL_UPLOAD_FILE_OLD);
-                request.setRequestParams(params, null);
-                HttpClient client = new DefaultHttpClient();
-                HttpResponse resp = client.execute(request);
-                
-                int code = resp.getStatusLine().getStatusCode();
-                LogUtils.d("code: " + code);
-                if (code == HttpStatus.SC_OK) {
-                    HttpEntity entity = resp.getEntity();
-                    String result = new StringDownloadHandler().handleEntity(entity, null, "utf8");
-                    LogUtils.d("result: " + result);
-                    if (result != null) {
-                        BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
-                        if (uploadResult != null) {
-                            fileMsg.setInfo(uploadResult);
-                            doSendMsgForFile(defer, fileMsg);
-                            return;
-                        }
-                        BDError err = G.fromJson(result, BDError.class);
-                        if (err != null) {
-                            defer.reject(err.error_msg + "(code:" + err.error_code + ")");
-                            return;
-                        }
+                            @Override
+                            public void run() {
+                                uploadFile(defer, fileMsg);
+                            }
+                        });
+                    }
+                });
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                defer.reject();
+            }
+        });
+    }
+    
+    private void uploadFile(final MyDefer defer, FileMsg fileMsg) {
+        try {
+            File file = new File(fileMsg.getFile());
+            FileChannel channel = new FileInputStream(file).getChannel();
+            ByteArrayOutputStream os = new ByteArrayOutputStream();
+            WritableByteChannel wchannel = Channels.newChannel(os);
+            channel.transferTo(0, file.length(), wchannel);
+            channel.close();
+            wchannel.close();
+            byte[] data = os.toByteArray();
+            String encoded = Base64.encodeToString(data, 0);
+
+            RequestParams params = new RequestParams();
+            String name = UUID.randomUUID().toString();
+            params.addQueryStringParameter("path", "/attachment/file/" + name);
+            params.addBodyParameter("file", encoded);
+            // TODO upload to Baidu PCS by post parameter
+            // params.addBodyParameter("file", file);
+            
+            HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.POST, Constants.URL_UPLOAD_FILE_OLD);
+            request.setRequestParams(params, null);
+            HttpClient client = new DefaultHttpClient();
+            HttpResponse resp = client.execute(request);
+            
+            int code = resp.getStatusLine().getStatusCode();
+            LogUtils.d("code: " + code);
+            if (code == HttpStatus.SC_OK) {
+                HttpEntity entity = resp.getEntity();
+                String result = new StringDownloadHandler().handleEntity(entity, null, "utf8");
+                LogUtils.d("result: " + result);
+                if (result != null) {
+                    BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
+                    if (uploadResult != null) {
+                        fileMsg.setInfo(uploadResult);
+                        doInsertAttachment(defer, fileMsg);
+                        return;
+                    }
+                    BDError err = G.fromJson(result, BDError.class);
+                    if (err != null) {
+                        defer.reject(err.error_msg + "(code:" + err.error_code + ")");
+                        return;
                     }
                 }
             }
@@ -470,14 +508,48 @@ public class ConnectionManager {
         defer.reject();
     }
     
+    private void doInsertAttachment(final MyDefer defer, final FileMsg fileMsg) {
+        dbOp(new RunnableWithDefer() {
+            
+            @Override
+            public void run() {
+                ContentValues values = new ContentValues();
+                values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
+                values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
+                values.put(AttachmentsColumns.TYPE, AttachmentsColumns.TYPE_FILE);
+                values.put(AttachmentsColumns.CREATE_TIME, fileMsg.getInfo().ctime);
+                values.put(AttachmentsColumns.MODIFY_TIME, fileMsg.getInfo().mtime);
+                values.put(AttachmentsColumns.MD5, fileMsg.getInfo().md5);
+                values.put(AttachmentsColumns.SIZE, fileMsg.getInfo().size);
+                values.put(AttachmentsColumns.URL, fileMsg.getInfo().path);
+                ContentResolver resolver = mContext.getContentResolver();
+                Uri uri = resolver.insert(AttachmentsColumns.CONTENT_URI, values);
+                LogUtils.d(uri.toString());
+                int attId = Integer.valueOf(uri.getLastPathSegment());
+                getDefer().resolve();
+            }
+        }).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                doSendMsgForFile(defer, fileMsg);
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                defer.reject();
+            }
+        });
+    }
+    
     private void doSendMsgForFile(final MyDefer defer, final FileMsg fileMsg) {
-        LogUtils.d("send file, threadID:" + fileMsg.getThreadID());
         try {
             XMPPMsg xmppMsg = new XMPPMsg();
             xmppMsg.setFrom(mConnection.getUser());
             xmppMsg.setTo(fileMsg.getAddress() + "@" + ConnectionManager.XMPP_SERVER);
             xmppMsg.setType(Message.Type.chat);
-            xmppMsg.setBody(FilenameUtils.getName(fileMsg.getFile()));
+            xmppMsg.setBody(fileMsg.getBody());
 
             XMPPFileExtension xmppFile = new XMPPFileExtension();
             xmppFile.setInfo(fileMsg.getInfo());

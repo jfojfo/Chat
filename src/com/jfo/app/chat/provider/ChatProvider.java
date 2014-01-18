@@ -17,6 +17,7 @@ import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.text.TextUtils;
 
+import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
@@ -35,6 +36,8 @@ public class ChatProvider extends ContentProvider {
     private static final int THREADS = 20;
     private static final int THREADS_ID = 21;
     private static final int QUERY_THREAD_ID = 31;
+    private static final int ATTACHMENT = 40;
+    private static final int ATTACHMENT_ID = 41;
     private static final UriMatcher URI_MATCHER;
 
 //    private static final String UPDATE_THREAD_COUNT =
@@ -101,6 +104,7 @@ public class ChatProvider extends ContentProvider {
             }
             db.execSQL(MessageColumns.SQL_CREATE);
             db.execSQL(ThreadsColumns.SQL_CREATE);
+            db.execSQL(AttachmentsColumns.SQL_CREATE);
             db.execSQL(UPDATE_THREADS_ON_INSERT_MESSAGE);
             db.execSQL(UPDATE_THREADS_ON_DELETE_MESSAGE);
             db.execSQL(UPDATE_THREADS_ON_UPDATE_MESSAGE);
@@ -157,6 +161,11 @@ public class ChatProvider extends ContentProvider {
                 orderBy = sortOrder;
             }
             break;
+        case ATTACHMENT_ID:
+            qb.appendWhere(AttachmentsColumns._ID + "=" + uri.getLastPathSegment());
+        case ATTACHMENT:
+            qb.setTables(ThreadsColumns.TABLE_NAME);
+            break;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
@@ -181,6 +190,9 @@ public class ChatProvider extends ContentProvider {
         case THREADS:
         case THREADS_ID:
             return ThreadsColumns.CONTENT_TYPE;
+        case ATTACHMENT:
+        case ATTACHMENT_ID:
+            return AttachmentsColumns.CONTENT_TYPE;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
@@ -210,6 +222,9 @@ public class ChatProvider extends ContentProvider {
             break;
         case THREADS:
             tableName = ThreadsColumns.TABLE_NAME;
+            break;
+        case ATTACHMENT:
+            tableName = AttachmentsColumns.TABLE_NAME;
             break;
         }
 
@@ -284,6 +299,12 @@ public class ChatProvider extends ContentProvider {
         case THREADS:
             table = ThreadsColumns.TABLE_NAME;
             break;
+        case ATTACHMENT_ID:
+            where = AttachmentsColumns._ID + "=" + uri.getLastPathSegment()
+                + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
+        case ATTACHMENT:
+            table = AttachmentsColumns.TABLE_NAME;
+            break;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
         }
@@ -325,6 +346,12 @@ public class ChatProvider extends ContentProvider {
                 + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
         case THREADS:
             count = db.update(ThreadsColumns.TABLE_NAME, values, where, whereArgs);
+            break;
+        case ATTACHMENT_ID:
+            where = AttachmentsColumns._ID + "=" + uri.getLastPathSegment()
+                + (!TextUtils.isEmpty(where) ? " AND (" + where + ")" : "");
+        case ATTACHMENT:
+            count = db.update(AttachmentsColumns.TABLE_NAME, values, where, whereArgs);
             break;
         default:
             throw new IllegalArgumentException("Unknown URI " + uri);
@@ -417,6 +444,8 @@ public class ChatProvider extends ContentProvider {
         URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, ThreadsColumns.TABLE_NAME, THREADS);
         URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, ThreadsColumns.TABLE_NAME + "/#", THREADS_ID);
         URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, ThreadsHelper.THREAD_ID_QUERY_NAME, QUERY_THREAD_ID);
+        URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, AttachmentsColumns.TABLE_NAME, ATTACHMENT);
+        URI_MATCHER.addURI(ChatDataStructs.AUTHORITY, AttachmentsColumns.TABLE_NAME + "/#", ATTACHMENT_ID);
 
         sMsgProjectionMap = new HashMap<String, String>();
         sMsgProjectionMap.put(MessageColumns._ID, MessageColumns._ID);
@@ -434,6 +463,7 @@ public class ChatProvider extends ContentProvider {
         sMsgProjectionMap.put(MessageColumns.STATUS, MessageColumns.STATUS);
         sMsgProjectionMap.put(MessageColumns.SUBJECT, MessageColumns.SUBJECT);
         sMsgProjectionMap.put(MessageColumns.TYPE, MessageColumns.TYPE);
+        sMsgProjectionMap.put(MessageColumns.MEDIA_TYPE, MessageColumns.MEDIA_TYPE);
 
         sThreadsProjectionMap = new HashMap<String, String>();
         sThreadsProjectionMap.put(ThreadsColumns._ID, ThreadsColumns._ID);

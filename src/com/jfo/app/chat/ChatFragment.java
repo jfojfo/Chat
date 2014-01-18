@@ -1,5 +1,7 @@
 package com.jfo.app.chat;
 
+import org.apache.commons.io.FilenameUtils;
+
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
@@ -169,6 +171,7 @@ public class ChatFragment extends Fragment {
         fileMsg.setAddress(mUser);
         fileMsg.setThreadID(mThreadID);
         fileMsg.setFile("/sdcard/test.txt");
+        fileMsg.setBody(FilenameUtils.getName(fileMsg.getFile()));
         ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
             
             @Override
@@ -309,6 +312,7 @@ public class ChatFragment extends Fragment {
         MessageColumns.SUBJECT,
         MessageColumns.THREAD_ID,
         MessageColumns.TYPE,
+        MessageColumns.MEDIA_TYPE,
         MessageColumns._ID,
         MessageColumns.EXPAND_DATA1,
         MessageColumns.EXPAND_DATA2,
