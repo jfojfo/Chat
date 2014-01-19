@@ -34,6 +34,7 @@ import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.connection.FileMsg;
 import com.jfo.app.chat.db.Attachment;
+import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
 import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
@@ -194,7 +195,7 @@ public class ChatFragment extends Fragment {
     }
 
     private void onSendFile(String file) {
-        FileMsg fileMsg = new FileMsg();
+        final FileMsg fileMsg = new FileMsg();
         fileMsg.setAddress(mUser);
         fileMsg.setThreadID(mThreadID);
         fileMsg.setFile(file);
@@ -203,13 +204,26 @@ public class ChatFragment extends Fragment {
             
             @Override
             public void call(Object... args) {
+                AttachmentHelper.removeProgress(fileMsg.getAttachmentId());
                 Utils.showMessage(getActivity(), "send file success");
             }
         }).fail(new Func() {
             
             @Override
             public void call(Object... args) {
+                AttachmentHelper.removeProgress(fileMsg.getAttachmentId());
                 Utils.showMessage(getActivity(), "send file fail");
+            }
+        }).progress(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                FileMsg fileMsg = (FileMsg) args[0];
+                long total = (Long) args[1];
+                long curr = (Long) args[2];
+                LogUtils.d(String.format("total:%d, curr:%d", total, curr));
+                AttachmentHelper.setProgress(fileMsg.getAttachmentId(), ((float)curr)/total);
+                mAdapter.notifyDataSetInvalidated();
             }
         });
     }
@@ -321,15 +335,16 @@ public class ChatFragment extends Fragment {
         }
         
         private void bindViewForFile(View view, Context context, Cursor cursor) {
-            ViewHolder holder = (ViewHolder) view.getTag();
-            holder.tvMsg.setVisibility(View.GONE);
-            holder.fileItem.setVisibility(View.VISIBLE);
-
-            FileViewHolder fileHolder = (FileViewHolder) holder.fileItem.getTag();
-
             int id = cursor.getInt(cursor.getColumnIndex(MessageColumns._ID));
             int status = cursor.getInt(cursor.getColumnIndex(MessageColumns.STATUS));
             
+            ViewHolder holder = (ViewHolder) view.getTag();
+            FileViewHolder fileHolder = (FileViewHolder) holder.fileItem.getTag();
+            IndicatorViewHolder indicatorHolder = (IndicatorViewHolder) holder.indicator.getTag();
+            
+            holder.tvMsg.setVisibility(View.GONE);
+            holder.fileItem.setVisibility(View.VISIBLE);
+
             DbUtils db = DbUtils.create(context, ChatProvider.DATABASE_NAME);
             db.configAllowTransaction(true);
             db.configDebug(true);
@@ -340,6 +355,20 @@ public class ChatFragment extends Fragment {
                     return;
                 fileHolder.name.setText(attachment.getName());
                 fileHolder.size.setText("(" + FileUtils.byteCountToDisplaySize(attachment.getSize()) + ")");
+
+                fileHolder.icon.setImageResource(R.drawable.file_normal_btn);
+                if (status == MessageColumns.STATUS_SENDING) {
+                    float percent = AttachmentHelper.getProgress(attachment.getId());
+                    int ipercent = (int) (percent * 100);
+                    indicatorHolder.progress.setVisibility(View.VISIBLE);
+                    indicatorHolder.percent.setText(String.format("%d%%", ipercent));
+                } else if (status == MessageColumns.STATUS_IDLE) {
+                    fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
+                } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
+                    fileHolder.icon.setImageResource(R.drawable.file_download_btn);
+                } else if (status == MessageColumns.STATUS_FAIL) {
+                    fileHolder.icon.setImageResource(R.drawable.file_fail);
+                }
             } catch (DbException e) {
                 e.printStackTrace();
             }

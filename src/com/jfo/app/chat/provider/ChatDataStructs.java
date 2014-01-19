@@ -62,11 +62,12 @@ public final class ChatDataStructs {
          * <P>Type: INTEGER</P>
          */
         public static final String STATUS = "status";
-        
+
         public static final int STATUS_IDLE = 0;
-        public static final int STATUS_SENDING = 1;
-        public static final int STATUS_FAIL = 2;
-        
+        public static final int STATUS_FAIL = 1;
+        public static final int STATUS_SENDING = 2;
+        public static final int STATUS_PENDING_TO_DOWNLOAD = 3;
+
         /**
          * <P>Type: STRING</P>
          */

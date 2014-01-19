@@ -20,6 +20,7 @@ import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.HttpClient;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.protocol.HTTP;
 import org.jivesoftware.smack.AccountManager;
 import org.jivesoftware.smack.ConnectionConfiguration;
 import org.jivesoftware.smack.ConnectionListener;
@@ -47,7 +48,6 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.util.Base64;
 
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
@@ -68,8 +68,10 @@ import com.libs.defer.Defer.Func;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.http.RequestParams;
+import com.lidroid.xutils.http.callback.RequestCallBackHandler;
 import com.lidroid.xutils.http.callback.StringDownloadHandler;
 import com.lidroid.xutils.http.client.HttpRequest;
+import com.lidroid.xutils.http.client.entity.FileUploadEntity;
 import com.lidroid.xutils.util.LogUtils;
 
 public class ConnectionManager {
@@ -470,7 +472,7 @@ public class ConnectionManager {
         });
     }
     
-    private void uploadFile(final MyDefer defer, FileMsg fileMsg) {
+    private void uploadFile(final MyDefer defer, final FileMsg fileMsg) {
         try {
             File file = new File(fileMsg.getFile());
             FileChannel channel = new FileInputStream(file).getChannel();
@@ -480,17 +482,24 @@ public class ConnectionManager {
             channel.close();
             wchannel.close();
             byte[] data = os.toByteArray();
-            String encoded = Base64.encodeToString(data, 0);
 
             RequestParams params = new RequestParams();
             String name = UUID.randomUUID().toString();
             params.addQueryStringParameter("path", "/attachment/file/" + name);
-            params.addBodyParameter("file", encoded);
             // TODO upload to Baidu PCS by post parameter
             // params.addBodyParameter("file", file);
-            
+            //params.addBodyParameter("file", new ByteArrayInputStream(encoded.getBytes()), encoded.getBytes().length);
+            params.setBodyEntity(new FileUploadEntity(file, HTTP.OCTET_STREAM_TYPE));
+
             HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.POST, Constants.URL_UPLOAD_FILE_OLD);
-            request.setRequestParams(params, null);
+            request.setRequestParams(params, new RequestCallBackHandler() {
+                
+                @Override
+                public boolean updateProgress(long total, long current, boolean forceUpdateUI) {
+                    defer.notify(fileMsg, total, current);
+                    return true;
+                }
+            });
             HttpClient client = new DefaultHttpClient();
             HttpResponse resp = client.execute(request);
             
@@ -569,12 +578,22 @@ public class ConnectionManager {
                 
                 @Override
                 public void call(Object... args) {
+                    ContentValues values = new ContentValues();
+                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
+                    ContentResolver resolver = mContext.getContentResolver();
+                    Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
+                    resolver.update(uri, values, null, null);
                     defer.resolve();
                 }
             }).fail(new Func() {
                 
                 @Override
                 public void call(Object... args) {
+                    ContentValues values = new ContentValues();
+                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL);
+                    ContentResolver resolver = mContext.getContentResolver();
+                    Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
+                    resolver.update(uri, values, null, null);
                     defer.reject();
                 }
             });
