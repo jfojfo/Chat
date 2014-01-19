@@ -1,13 +1,17 @@
 package com.jfo.app.chat;
 
+import java.io.File;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 
+import android.content.ActivityNotFoundException;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
@@ -22,6 +26,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.widget.AdapterView.AdapterContextMenuInfo;
+import android.widget.AdapterView;
 import android.widget.CursorAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -33,7 +38,8 @@ import android.widget.TextView;
 import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.connection.FileMsg;
-import com.jfo.app.chat.db.Attachment;
+import com.jfo.app.chat.db.DBAttachment;
+import com.jfo.app.chat.db.DBMessage;
 import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
@@ -44,11 +50,13 @@ import com.libs.defer.Defer.Func;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.DbUtils;
 import com.lidroid.xutils.ViewUtils;
+import com.lidroid.xutils.db.sqlite.CursorUtils;
 import com.lidroid.xutils.db.sqlite.Selector;
 import com.lidroid.xutils.exception.DbException;
 import com.lidroid.xutils.util.LogUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
 import com.lidroid.xutils.view.annotation.event.OnClick;
+import com.lidroid.xutils.view.annotation.event.OnItemClick;
 
 public class ChatFragment extends Fragment {
     public static final String EXTRA_USER = "user";
@@ -285,6 +293,32 @@ public class ChatFragment extends Fragment {
         return super.onContextItemSelected(item);
     }
 
+    @OnItemClick(R.id.list)
+    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+        Cursor cursor = (Cursor) mAdapter.getItem(position);
+        DBMessage msg = CursorUtils.getEntity(ConnectionManager.getInstance().getDB(), 
+                cursor, DBMessage.class, 0);
+        if (msg.getMedia_type() == MessageColumns.MEDIA_FILE) {
+            DBAttachment attachment = null;
+            try {
+                attachment = db.findFirst(Selector.from(DBAttachment.class).where("message_id", "=", msg.getId()));
+            } catch (DbException e1) {
+                e1.printStackTrace();
+            }
+            if (attachment != null && attachment.getLocal_path() != null) {
+                try {
+                    Uri uri = Uri.fromFile(new File(attachment.getLocal_path()));
+                    Intent intent = new Intent( Intent.ACTION_VIEW );
+                    intent.setDataAndType(uri, AttachmentHelper.getFileMIME(attachment.getLocal_path()));
+                    startActivity(intent);
+                } catch (ActivityNotFoundException e) {
+                    Utils.showMessage(getActivity(), "Cannot find application to open file");
+                }
+            }
+        }
+    }
+    
+    
     private static class ChatListAdapter extends CursorAdapter {
         int screenWidth;
 
@@ -345,12 +379,10 @@ public class ChatFragment extends Fragment {
             holder.tvMsg.setVisibility(View.GONE);
             holder.fileItem.setVisibility(View.VISIBLE);
 
-            DbUtils db = DbUtils.create(context, ChatProvider.DATABASE_NAME);
-            db.configAllowTransaction(true);
-            db.configDebug(true);
+            DbUtils db = ConnectionManager.getInstance().getDB();
 
             try {
-                Attachment attachment = db.findFirst(Selector.from(Attachment.class).where("message_id", "=", id));
+                DBAttachment attachment = db.findFirst(Selector.from(DBAttachment.class).where("message_id", "=", id));
                 if (attachment == null)
                     return;
                 fileHolder.name.setText(attachment.getName());

@@ -64,9 +64,11 @@ import com.jfo.app.chat.proto.BDUploadFileResult;
 import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.ThreadsHelper;
+import com.jfo.app.chat.provider.ChatProvider;
 import com.libs.defer.Defer.Func;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
+import com.lidroid.xutils.DbUtils;
 import com.lidroid.xutils.http.RequestParams;
 import com.lidroid.xutils.http.callback.RequestCallBackHandler;
 import com.lidroid.xutils.http.callback.StringDownloadHandler;
@@ -88,6 +90,7 @@ public class ConnectionManager {
     private Thread mDBOpThread;
     private HandlerThread mConnThread;
     private Handler mConnHandler;
+    private DbUtils db;
 
 
     static {
@@ -122,6 +125,10 @@ public class ConnectionManager {
         mReceiveThread.start();
         mDBOpThread = new DBOpThread("dbop-thread");
         mDBOpThread.start();
+
+        db = DbUtils.create(context, ChatProvider.DATABASE_NAME);
+        db.configAllowTransaction(true);
+        db.configDebug(true);
 
         // this will register providers in ConfigureProviderManager.java
         SmackAndroid.init(mContext);
@@ -167,6 +174,10 @@ public class ConnectionManager {
         });
     }
 
+    public DbUtils getDB() {
+        return db;
+    }
+    
     public XMPPConnection getConnection() {
         return mConnection;
     }

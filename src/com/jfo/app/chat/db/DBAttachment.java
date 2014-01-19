@@ -6,7 +6,7 @@ import com.lidroid.xutils.db.annotation.Table;
 // 建议加上注解， 混淆后表名不受影响
 //@Table(name = "parent", execAfterTableCreated = "CREATE UNIQUE INDEX index_name ON parent(name,email)")
 @Table(name = "attachments")
-public class Attachment extends EntityBase {
+public class DBAttachment extends EntityBase {
     public String name;
     private String desc;
     private String url;
@@ -100,7 +100,7 @@ public class Attachment extends EntityBase {
 
     @Override
     public String toString() {
-        return "Attachment [name=" + name + ", desc=" + desc + ", url=" + url
+        return "DBAttachment [name=" + name + ", desc=" + desc + ", url=" + url
                 + ", size=" + size + ", create_time=" + create_time
                 + ", modify_time=" + modify_time + ", md5=" + md5
                 + ", message_id=" + message_id + ", local_path=" + local_path
