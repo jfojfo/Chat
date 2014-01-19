@@ -430,6 +430,18 @@ public class ConnectionManager {
                 Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
                 LogUtils.d(uri.toString());
                 chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
+                
+                File file = new File(fileMsg.getFile());
+                values = new ContentValues();
+                values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
+                values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
+                values.put(AttachmentsColumns.SIZE, file.length());
+                values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
+                uri = resolver.insert(AttachmentsColumns.CONTENT_URI, values);
+                LogUtils.d(uri.toString());
+                int attId = Integer.valueOf(uri.getLastPathSegment());
+                fileMsg.setAttachmentId(attId);
+
                 getDefer().resolve();
             }
         }).done(new Func() {
@@ -492,7 +504,7 @@ public class ConnectionManager {
                     BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
                     if (uploadResult != null) {
                         fileMsg.setInfo(uploadResult);
-                        doInsertAttachment(defer, fileMsg);
+                        doUpdateAttachment(defer, fileMsg);
                         return;
                     }
                     BDError err = G.fromJson(result, BDError.class);
@@ -508,7 +520,7 @@ public class ConnectionManager {
         defer.reject();
     }
     
-    private void doInsertAttachment(final MyDefer defer, final FileMsg fileMsg) {
+    private void doUpdateAttachment(final MyDefer defer, final FileMsg fileMsg) {
         dbOp(new RunnableWithDefer() {
             
             @Override
@@ -516,16 +528,15 @@ public class ConnectionManager {
                 ContentValues values = new ContentValues();
                 values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
                 values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
-                values.put(AttachmentsColumns.TYPE, AttachmentsColumns.TYPE_FILE);
                 values.put(AttachmentsColumns.CREATE_TIME, fileMsg.getInfo().ctime);
                 values.put(AttachmentsColumns.MODIFY_TIME, fileMsg.getInfo().mtime);
                 values.put(AttachmentsColumns.MD5, fileMsg.getInfo().md5);
                 values.put(AttachmentsColumns.SIZE, fileMsg.getInfo().size);
                 values.put(AttachmentsColumns.URL, fileMsg.getInfo().path);
+                values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
                 ContentResolver resolver = mContext.getContentResolver();
-                Uri uri = resolver.insert(AttachmentsColumns.CONTENT_URI, values);
-                LogUtils.d(uri.toString());
-                int attId = Integer.valueOf(uri.getLastPathSegment());
+                Uri uri = Uri.withAppendedPath(AttachmentsColumns.CONTENT_URI, String.valueOf(fileMsg.getAttachmentId()));
+                resolver.update(uri, values, null, null);
                 getDefer().resolve();
             }
         }).done(new Func() {

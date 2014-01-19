@@ -63,14 +63,14 @@ public class AvatarPicker {
     private void addWrapperFragment() {
         final FragmentManager fm = mContext.getSupportFragmentManager();
         final FragmentTransaction ft = fm.beginTransaction();
-        ft.add(new WrapperFragment(), "wrapper");
+        ft.add(new WrapperFragment(), "AvatarPicker");
         ft.commit();
     }
 
     private void removeWrapperFragment() {
         final FragmentManager fm = mContext.getSupportFragmentManager();
         final FragmentTransaction ft = fm.beginTransaction();
-        ft.remove(fm.findFragmentByTag("wrapper"));
+        ft.remove(fm.findFragmentByTag("AvatarPicker"));
         ft.commit();
     }
     

@@ -250,7 +250,6 @@ public final class ChatDataStructs {
          * <P>Type: INTEGER</P>
          */
         public static final String TYPE = "type";
-        public static final int TYPE_FILE = 0;
 
         /**
          * <P>Type: INTEGER</P>
@@ -272,7 +271,7 @@ public final class ChatDataStructs {
                 + SIZE + " INTEGER, "
                 + CREATE_TIME + " INTEGER, "
                 + MODIFY_TIME + " INTEGER, "
-                + TYPE + " INTEGER DEFAULT 0, "
+                + TYPE + " INTEGER, "
                 + MESSAGE_ID + " INTEGER, "
                 + LOCAL_PATH + " TEXT "
                 + ");";

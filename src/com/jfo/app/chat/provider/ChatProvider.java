@@ -27,7 +27,7 @@ import com.lidroid.xutils.util.LogUtils;
 public class ChatProvider extends ContentProvider {
     private static final String TAG = ChatProvider.class.getSimpleName();
 
-    private static final String DATABASE_NAME = "chat.db";
+    public static final String DATABASE_NAME = "chat.db";
     private static final int DATABASE_VERSION = 1;
     private static final HashMap<String, String> sMsgProjectionMap;
     private static final HashMap<String, String> sThreadsProjectionMap;

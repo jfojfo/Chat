@@ -1,5 +1,6 @@
 package com.jfo.app.chat;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 
 import android.content.ContentUris;
@@ -19,9 +20,11 @@ import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewStub;
 import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.CursorAdapter;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.RelativeLayout.LayoutParams;
@@ -30,11 +33,18 @@ import android.widget.TextView;
 import com.jfo.app.chat.connection.ChatMsg;
 import com.jfo.app.chat.connection.ConnectionManager;
 import com.jfo.app.chat.connection.FileMsg;
+import com.jfo.app.chat.db.Attachment;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
+import com.jfo.app.chat.helper.FilePicker;
+import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
+import com.jfo.app.chat.provider.ChatProvider;
 import com.libs.defer.Defer.Func;
 import com.libs.utils.Utils;
+import com.lidroid.xutils.DbUtils;
 import com.lidroid.xutils.ViewUtils;
+import com.lidroid.xutils.db.sqlite.Selector;
+import com.lidroid.xutils.exception.DbException;
 import com.lidroid.xutils.util.LogUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
 import com.lidroid.xutils.view.annotation.event.OnClick;
@@ -56,12 +66,18 @@ public class ChatFragment extends Fragment {
     
     private static final int ITEM_DELETE = 1;
     private static final int ITEM_RESEND = 2;
+    
+    private DbUtils db;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setHasOptionsMenu(true);
         getActivity().getActionBar().setDisplayHomeAsUpEnabled(true);
+
+        db = DbUtils.create(getActivity(), ChatProvider.DATABASE_NAME);
+        db.configAllowTransaction(true);
+        db.configDebug(true);
     }
 
     @Override
@@ -167,10 +183,21 @@ public class ChatFragment extends Fragment {
     
     @OnClick(R.id.btnSendFile)
     public void onSendFile(View view) {
+        new FilePicker(getActivity()).pick().done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                String file = (String) args[0];
+                onSendFile(file);
+            }
+        });
+    }
+
+    private void onSendFile(String file) {
         FileMsg fileMsg = new FileMsg();
         fileMsg.setAddress(mUser);
         fileMsg.setThreadID(mThreadID);
-        fileMsg.setFile("/sdcard/test.txt");
+        fileMsg.setFile(file);
         fileMsg.setBody(FilenameUtils.getName(fileMsg.getFile()));
         ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
             
@@ -257,12 +284,12 @@ public class ChatFragment extends Fragment {
             String body = cursor.getString(cursor.getColumnIndex(MessageColumns.BODY));
             int type = cursor.getInt(cursor.getColumnIndex(MessageColumns.TYPE));
             int status = cursor.getInt(cursor.getColumnIndex(MessageColumns.STATUS));
+            int mediaType = cursor.getInt(cursor.getColumnIndex(MessageColumns.MEDIA_TYPE));
             
             ViewHolder holder = (ViewHolder) view.getTag();
-            holder.tvMsg.setText(body);
+            IndicatorViewHolder indicatorHolder = (IndicatorViewHolder) holder.indicator.getTag();
 
-            holder.failIcon.setVisibility(View.GONE);
-            RelativeLayout.LayoutParams params = (LayoutParams) holder.bubble.getLayoutParams();
+            RelativeLayout.LayoutParams params = (LayoutParams) holder.container.getLayoutParams();
             if (type == MessageColumns.TYPE_INBOX) {
                 holder.bubble.setBackgroundResource(R.drawable.bg_in_circle);
                 params.addRule(RelativeLayout.ALIGN_PARENT_LEFT, 1);
@@ -275,12 +302,47 @@ public class ChatFragment extends Fragment {
                 params.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, 1);
                 params.leftMargin = (int) (screenWidth * 0.2);
                 params.rightMargin = 0;
-                if (status == MessageColumns.STATUS_FAIL) {
-                    holder.failIcon.setVisibility(View.VISIBLE);
-                    holder.bubble.setBackgroundResource(R.drawable.bg_out_circle_brown_normal);
-                }
             }
-            holder.bubble.setLayoutParams(params);
+
+            holder.tvMsg.setVisibility(View.VISIBLE);
+            holder.tvMsg.setText(body);
+            indicatorHolder.failIcon.setVisibility(View.GONE);
+            indicatorHolder.progress.setVisibility(View.GONE);
+            holder.fileItem.setVisibility(View.GONE);
+
+            if (status == MessageColumns.STATUS_FAIL) {
+                indicatorHolder.failIcon.setVisibility(View.VISIBLE);
+                holder.bubble.setBackgroundResource(R.drawable.bg_out_circle_brown_normal);
+            }
+
+            if (mediaType == MessageColumns.MEDIA_FILE) {
+                bindViewForFile(view, context, cursor);
+            }
+        }
+        
+        private void bindViewForFile(View view, Context context, Cursor cursor) {
+            ViewHolder holder = (ViewHolder) view.getTag();
+            holder.tvMsg.setVisibility(View.GONE);
+            holder.fileItem.setVisibility(View.VISIBLE);
+
+            FileViewHolder fileHolder = (FileViewHolder) holder.fileItem.getTag();
+
+            int id = cursor.getInt(cursor.getColumnIndex(MessageColumns._ID));
+            int status = cursor.getInt(cursor.getColumnIndex(MessageColumns.STATUS));
+            
+            DbUtils db = DbUtils.create(context, ChatProvider.DATABASE_NAME);
+            db.configAllowTransaction(true);
+            db.configDebug(true);
+
+            try {
+                Attachment attachment = db.findFirst(Selector.from(Attachment.class).where("message_id", "=", id));
+                if (attachment == null)
+                    return;
+                fileHolder.name.setText(attachment.getName());
+                fileHolder.size.setText("(" + FileUtils.byteCountToDisplaySize(attachment.getSize()) + ")");
+            } catch (DbException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
@@ -288,17 +350,45 @@ public class ChatFragment extends Fragment {
             LayoutInflater inflater = LayoutInflater.from(context);
             View view = inflater.inflate(R.layout.chat_list_item, parent, false);
             ViewHolder holder = new ViewHolder();
+            holder.container = (ViewGroup) view.findViewById(R.id.container);
             holder.tvMsg = (TextView) view.findViewById(R.id.text);
             holder.bubble = (ViewGroup) view.findViewById(R.id.bg_bubble);
-            holder.failIcon = view.findViewById(R.id.fail);
+
+            holder.indicator = (ViewGroup) view.findViewById(R.id.indicator);
+            IndicatorViewHolder indicatorHolder = new IndicatorViewHolder();
+            indicatorHolder.failIcon = view.findViewById(R.id.fail);
+            indicatorHolder.progress = view.findViewById(R.id.progress);
+            indicatorHolder.percent = (TextView) view.findViewById(R.id.percent);
+            holder.indicator.setTag(indicatorHolder);
+
+            holder.fileItem = view.findViewById(R.id.item_file);
+            FileViewHolder fileHolder = new FileViewHolder();
+            fileHolder.icon = (ImageView) holder.fileItem.findViewById(R.id.icon);
+            fileHolder.name = (TextView) holder.fileItem.findViewById(R.id.filename);
+            fileHolder.size = (TextView) holder.fileItem.findViewById(R.id.size);
+            holder.fileItem.setTag(fileHolder);
+
             view.setTag(holder);
             return view;
         }
 
         private static class ViewHolder  {
+            ViewGroup container;
             TextView tvMsg;
             ViewGroup bubble;
+            ViewGroup indicator;
+            View fileItem;
+        }
+        
+        private static class IndicatorViewHolder {
             View failIcon;
+            View progress;
+            TextView percent;
+        }
+        private static class FileViewHolder {
+            ImageView icon;
+            TextView name;
+            TextView size;
         }
     }
     

@@ -5,7 +5,16 @@ import com.jfo.app.chat.proto.BDUploadFileResult;
 
 public class FileMsg extends ChatMsg {
     private String file;
-    BDUploadFileResult info;
+    private BDUploadFileResult info;
+    private long attachmentId;
+
+    public long getAttachmentId() {
+        return attachmentId;
+    }
+
+    public void setAttachmentId(long attachmentId) {
+        this.attachmentId = attachmentId;
+    }
 
     public String getFile() {
         return file;
