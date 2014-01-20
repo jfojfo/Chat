@@ -275,7 +275,7 @@ public class ChatFragment extends Fragment {
             chatMsg.setAddress(address);
             chatMsg.setBody(body);
             chatMsg.setThreadID(threadID);
-            ConnectionManager.getInstance().resendMessage(getActivity(), chatMsg).done(new Func() {
+            ConnectionManager.getInstance().sendMessage(getActivity(), chatMsg).done(new Func() {
                 
                 @Override
                 public void call(Object... args) {
@@ -335,7 +335,7 @@ public class ChatFragment extends Fragment {
             if (cursor == null)
                 return null;
             return CursorUtils.getEntity(ConnectionManager.getInstance().getDB(), 
-                    cursor, DBMessage.class, 0);
+                    cursor, DBMessage.class, CursorUtils.FindCacheSequence.getSeq());
         }
 
         public DBAttachment getAttachmentByMsgId(int id) {

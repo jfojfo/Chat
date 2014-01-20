@@ -429,7 +429,7 @@ public class ConnectionManager {
                 chatMsg.setType(MessageColumns.TYPE_OUTBOX);
                 chatMsg.setStatus(MessageColumns.STATUS_SENDING);
                 chatMsg.setMediaType(MessageColumns.MEDIA_FILE);
-                Uri uri = DBOP.insertMsg(mContext, chatMsg);
+                Uri uri = DBOP.inserOrUpdateMsg(mContext, chatMsg);
                 LogUtils.d(uri.toString());
                 chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
                 
@@ -531,7 +531,7 @@ public class ConnectionManager {
             
             @Override
             public void call(Object... args) {
-                doSendMsgForFile(defer, fileMsg);
+                doSendMsg(defer, fileMsg);
             }
         }).fail(new Func() {
             
@@ -541,42 +541,8 @@ public class ConnectionManager {
             }
         });
     }
-    
-    private void doSendMsgForFile(final MyDefer defer, final FileMsg fileMsg) {
-        try {
-            XMPPMsg xmppMsg = new XMPPMsg();
-            xmppMsg.setFrom(mConnection.getUser());
-            xmppMsg.setTo(fileMsg.getAddress() + "@" + ConnectionManager.XMPP_SERVER);
-            xmppMsg.setType(Message.Type.chat);
-            xmppMsg.setBody(fileMsg.getBody());
 
-            XMPPFileExtension xmppFile = new XMPPFileExtension();
-            xmppFile.setInfo(fileMsg.getInfo());
-            xmppMsg.addExtension(xmppFile);
-            DeferHelper.wrapDefer(xmppMsg).done(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    fileMsg.setStatus(MessageColumns.STATUS_IDLE);
-                    DBOP.markStatus(mContext, fileMsg);
-                    defer.resolve();
-                }
-            }).fail(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    fileMsg.setStatus(MessageColumns.STATUS_FAIL);
-                    DBOP.markStatus(mContext, fileMsg);
-                    defer.reject();
-                }
-            });
-            putToQueue(mSendQueue, xmppMsg);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-    
-    
+
     // TODO dbOp.done().fail() is useless! no place to call defer.resolve() or defer.reject()
     public Promise dbOp(RunnableWithDefer action) {
         putToQueue(mDBOpQueue, action);
@@ -599,37 +565,18 @@ public class ConnectionManager {
                 chatMsg.setType(MessageColumns.TYPE_OUTBOX);
                 chatMsg.setStatus(MessageColumns.STATUS_SENDING);
                 chatMsg.setMediaType(MessageColumns.MEDIA_NORMAL);
-                Uri uri = DBOP.insertMsg(mContext, chatMsg);
+                Uri uri = DBOP.inserOrUpdateMsg(mContext, chatMsg);
                 LogUtils.d(uri.toString());
 
                 chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
-                resendMessage(null, chatMsg).done(new Func() {
-                    
-                    @Override
-                    public void call(Object... args) {
-                        defer.resolve();
-                    }
-                }).fail(new Func() {
-                    
-                    @Override
-                    public void call(Object... args) {
-                        defer.reject();
-                    }
-                });
+                doSendMsg(defer, chatMsg);
             }
         });
         return defer.promise();
     }
 
-    public Promise resendMessage(Activity activity, final ChatMsg chatMsg) {
-        final MyDefer defer = new MyDefer(activity);
-        if (activity != null)
-            LogUtils.d("re-send msg, threadID:" + chatMsg.getThreadID());
-        final XMPPMsg xmppMsg = new XMPPMsg();
-        xmppMsg.setFrom(mConnection.getUser());
-        xmppMsg.setTo(chatMsg.getAddress() + "@" + ConnectionManager.XMPP_SERVER);
-        xmppMsg.setBody(chatMsg.getBody());
-        xmppMsg.setType(Message.Type.chat);
+    public void doSendMsg(final MyDefer defer, final ChatMsg chatMsg) {
+        final XMPPMsg xmppMsg = chatMsg.toXMPP();
         DeferHelper.wrapDefer(xmppMsg).done(new Func() {
             
             @Override
@@ -644,11 +591,10 @@ public class ConnectionManager {
             public void call(Object... args) {
                 chatMsg.setStatus(MessageColumns.STATUS_FAIL);
                 DBOP.markStatus(mContext, chatMsg);
-                defer.resolve();
+                defer.reject();
             }
         });
         putToQueue(mSendQueue, xmppMsg);
-        return defer.promise();
     }
     
     public void recvMessage(final Packet packet) {

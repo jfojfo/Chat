@@ -15,7 +15,7 @@ import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 
 public class DBOP {
 
-    public static Uri insertMsg(Context context, ChatMsg chatMsg) {
+    public static Uri inserOrUpdateMsg(Context context, ChatMsg chatMsg) {
         ContentValues values = new ContentValues();
         values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
         values.put(MessageColumns.BODY, chatMsg.getBody());
@@ -26,7 +26,13 @@ public class DBOP {
         values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
         values.put(MessageColumns.MEDIA_TYPE, chatMsg.getMediaType());
         ContentResolver resolver = context.getContentResolver();
-        Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+        Uri uri = null;
+        if (chatMsg.getMsgID() == 0) {
+            uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+        } else {
+            uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
+            resolver.update(uri, values, null, null);
+        }
         return uri;
     }
 
