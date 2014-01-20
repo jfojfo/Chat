@@ -486,20 +486,12 @@ public class ConnectionManager {
     private void uploadFile(final MyDefer defer, final FileMsg fileMsg) {
         try {
             File file = new File(fileMsg.getFile());
-            FileChannel channel = new FileInputStream(file).getChannel();
-            ByteArrayOutputStream os = new ByteArrayOutputStream();
-            WritableByteChannel wchannel = Channels.newChannel(os);
-            channel.transferTo(0, file.length(), wchannel);
-            channel.close();
-            wchannel.close();
-            byte[] data = os.toByteArray();
 
             RequestParams params = new RequestParams();
             String name = UUID.randomUUID().toString();
             params.addQueryStringParameter("path", "/attachment/file/" + name);
             // TODO upload to Baidu PCS by post parameter
             // params.addBodyParameter("file", file);
-            //params.addBodyParameter("file", new ByteArrayInputStream(encoded.getBytes()), encoded.getBytes().length);
             params.setBodyEntity(new FileUploadEntity(file, HTTP.OCTET_STREAM_TYPE));
 
             HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.POST, Constants.URL_UPLOAD_FILE_OLD);
