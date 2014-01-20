@@ -6,20 +6,20 @@ import java.util.concurrent.ConcurrentHashMap;
 import android.text.TextUtils;
 
 public class AttachmentHelper {
-    private static ConcurrentHashMap<Long, Float> mProgressMap = new ConcurrentHashMap<Long, Float>();
+    private static ConcurrentHashMap<Integer, Float> mProgressMap = new ConcurrentHashMap<Integer, Float>();
 
-    public static void setProgress(long attachmentId, float percent) {
+    public static void setProgress(int attachmentId, float percent) {
         mProgressMap.put(attachmentId, percent);
     }
 
-    public static void setProgress(long attachmentId, long curr, long total) {
+    public static void setProgress(int attachmentId, long curr, long total) {
         float percent = 0.0f;
         if (total != 0)
             percent = ((float)curr) / total;
         mProgressMap.put(attachmentId, percent);
     }
 
-    public static float getProgress(long attachmentId) {
+    public static float getProgress(int attachmentId) {
         Float ret = mProgressMap.get(attachmentId);
         if (ret == null)
             return 0;

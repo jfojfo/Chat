@@ -164,7 +164,7 @@ public class InboxListFragment extends Fragment implements OnItemClickListener {
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
         Cursor cursor = (Cursor) mAdapter.getItem(position);
         String user = cursor.getString(cursor.getColumnIndex(ThreadsColumns.RECIPIENTS));
-        long threadId = cursor.getLong(cursor.getColumnIndex(ThreadsColumns._ID));
+        int threadId = cursor.getInt(cursor.getColumnIndex(ThreadsColumns._ID));
         Intent intent = new Intent(getActivity(), ChatActivity.class);
         intent.putExtra(ChatFragment.EXTRA_USER, user);
         intent.putExtra(ChatFragment.EXTRA_THREAD_ID, threadId);

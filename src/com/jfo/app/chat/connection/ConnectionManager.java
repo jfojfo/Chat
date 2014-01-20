@@ -426,32 +426,39 @@ public class ConnectionManager {
             @Override
             public void run() {
                 LogUtils.d("send file, threadID:" + fileMsg.getThreadID());
-                ContentValues values = new ContentValues();
+//                ContentValues values = new ContentValues();
                 ChatMsg chatMsg = fileMsg;
                 if (chatMsg.getThreadID() == 0) {
                     chatMsg.setThreadID(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
                     LogUtils.d("send file, create new threadID:" + chatMsg.getThreadID());
                 }
-                values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
-                values.put(MessageColumns.BODY, chatMsg.getBody());
-                values.put(MessageColumns.DATE, System.currentTimeMillis());
-                values.put(MessageColumns.READ, 1);
-                values.put(MessageColumns.TYPE, MessageColumns.TYPE_OUTBOX);
-                values.put(MessageColumns.STATUS, MessageColumns.STATUS_SENDING);
-                values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
-                values.put(MessageColumns.MEDIA_TYPE, MessageColumns.MEDIA_FILE);
-                ContentResolver resolver = mContext.getContentResolver();
-                Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+//                values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
+//                values.put(MessageColumns.BODY, chatMsg.getBody());
+//                values.put(MessageColumns.DATE, System.currentTimeMillis());
+//                values.put(MessageColumns.READ, 1);
+//                values.put(MessageColumns.TYPE, MessageColumns.TYPE_OUTBOX);
+//                values.put(MessageColumns.STATUS, MessageColumns.STATUS_SENDING);
+//                values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
+//                values.put(MessageColumns.MEDIA_TYPE, MessageColumns.MEDIA_FILE);
+//                ContentResolver resolver = mContext.getContentResolver();
+//                Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+                chatMsg.setDate(System.currentTimeMillis());
+                chatMsg.setRead(1);
+                chatMsg.setType(MessageColumns.TYPE_OUTBOX);
+                chatMsg.setStatus(MessageColumns.STATUS_SENDING);
+                chatMsg.setMediaType(MessageColumns.MEDIA_FILE);
+                Uri uri = DBOP.insertMsg(mContext, chatMsg);
                 LogUtils.d(uri.toString());
                 chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
                 
-                File file = new File(fileMsg.getFile());
-                values = new ContentValues();
-                values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
-                values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
-                values.put(AttachmentsColumns.SIZE, file.length());
-                values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
-                uri = resolver.insert(AttachmentsColumns.CONTENT_URI, values);
+//                File file = new File(fileMsg.getFile());
+//                values = new ContentValues();
+//                values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
+//                values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
+//                values.put(AttachmentsColumns.SIZE, file.length());
+//                values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
+//                uri = resolver.insert(AttachmentsColumns.CONTENT_URI, values);
+                uri = DBOP.insertOrUpdateAttachment(mContext, fileMsg);
                 LogUtils.d(uri.toString());
                 int attId = Integer.valueOf(uri.getLastPathSegment());
                 fileMsg.setAttachmentId(attId);
@@ -532,31 +539,34 @@ public class ConnectionManager {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        ContentValues values = new ContentValues();
-        values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL_UPLOADING);
-        ContentResolver resolver = mContext.getContentResolver();
-        Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
-        resolver.update(uri, values, null, null);
+//        ContentValues values = new ContentValues();
+//        values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL_UPLOADING);
+//        ContentResolver resolver = mContext.getContentResolver();
+//        Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
+//        resolver.update(uri, values, null, null);
+        fileMsg.setStatus(MessageColumns.STATUS_FAIL_UPLOADING);
+        DBOP.markStatus(mContext, fileMsg);
         defer.reject(failMsg);
     }
-    
+
     private void doUpdateAttachment(final MyDefer defer, final FileMsg fileMsg) {
         dbOp(new RunnableWithDefer() {
             
             @Override
             public void run() {
-                ContentValues values = new ContentValues();
-                values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
-                values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
-                values.put(AttachmentsColumns.CREATE_TIME, fileMsg.getInfo().ctime);
-                values.put(AttachmentsColumns.MODIFY_TIME, fileMsg.getInfo().mtime);
-                values.put(AttachmentsColumns.MD5, fileMsg.getInfo().md5);
-                values.put(AttachmentsColumns.SIZE, fileMsg.getInfo().size);
-                values.put(AttachmentsColumns.URL, fileMsg.getInfo().path);
-                values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
-                ContentResolver resolver = mContext.getContentResolver();
-                Uri uri = Uri.withAppendedPath(AttachmentsColumns.CONTENT_URI, String.valueOf(fileMsg.getAttachmentId()));
-                resolver.update(uri, values, null, null);
+//                ContentValues values = new ContentValues();
+//                values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
+//                values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
+//                values.put(AttachmentsColumns.CREATE_TIME, fileMsg.getInfo().ctime);
+//                values.put(AttachmentsColumns.MODIFY_TIME, fileMsg.getInfo().mtime);
+//                values.put(AttachmentsColumns.MD5, fileMsg.getInfo().md5);
+//                values.put(AttachmentsColumns.SIZE, fileMsg.getInfo().size);
+//                values.put(AttachmentsColumns.URL, fileMsg.getInfo().path);
+//                values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
+//                ContentResolver resolver = mContext.getContentResolver();
+//                Uri uri = Uri.withAppendedPath(AttachmentsColumns.CONTENT_URI, String.valueOf(fileMsg.getAttachmentId()));
+//                resolver.update(uri, values, null, null);
+                DBOP.insertOrUpdateAttachment(mContext, fileMsg);
                 getDefer().resolve();
             }
         }).done(new Func() {
@@ -589,22 +599,26 @@ public class ConnectionManager {
                 
                 @Override
                 public void call(Object... args) {
-                    ContentValues values = new ContentValues();
-                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
-                    ContentResolver resolver = mContext.getContentResolver();
-                    Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
-                    resolver.update(uri, values, null, null);
+//                    ContentValues values = new ContentValues();
+//                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
+//                    ContentResolver resolver = mContext.getContentResolver();
+//                    Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
+//                    resolver.update(uri, values, null, null);
+                    fileMsg.setStatus(MessageColumns.STATUS_IDLE);
+                    DBOP.markStatus(mContext, fileMsg);
                     defer.resolve();
                 }
             }).fail(new Func() {
                 
                 @Override
                 public void call(Object... args) {
-                    ContentValues values = new ContentValues();
-                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL);
-                    ContentResolver resolver = mContext.getContentResolver();
-                    Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
-                    resolver.update(uri, values, null, null);
+//                    ContentValues values = new ContentValues();
+//                    values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL);
+//                    ContentResolver resolver = mContext.getContentResolver();
+//                    Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
+//                    resolver.update(uri, values, null, null);
+                    fileMsg.setStatus(MessageColumns.STATUS_FAIL);
+                    DBOP.markStatus(mContext, fileMsg);
                     defer.reject();
                 }
             });
@@ -628,20 +642,26 @@ public class ConnectionManager {
             
             @Override
             public void run() {
-                ContentValues values = new ContentValues();
+//                ContentValues values = new ContentValues();
                 if (chatMsg.getThreadID() == 0) {
                     chatMsg.setThreadID(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
                     LogUtils.d("send msg, create new threadID:" + chatMsg.getThreadID());
                 }
-                values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
-                values.put(MessageColumns.BODY, chatMsg.getBody());
-                values.put(MessageColumns.DATE, System.currentTimeMillis());
-                values.put(MessageColumns.READ, 1);
-                values.put(MessageColumns.TYPE, MessageColumns.TYPE_OUTBOX);
-                values.put(MessageColumns.STATUS, MessageColumns.STATUS_SENDING);
-                values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
-                ContentResolver resolver = mContext.getContentResolver();
-                Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+                chatMsg.setDate(System.currentTimeMillis());
+                chatMsg.setRead(1);
+                chatMsg.setType(MessageColumns.TYPE_OUTBOX);
+                chatMsg.setStatus(MessageColumns.STATUS_SENDING);
+                chatMsg.setMediaType(MessageColumns.MEDIA_NORMAL);
+//                values.put(MessageColumns.ADDRESS, chatMsg.getAddress());
+//                values.put(MessageColumns.BODY, chatMsg.getBody());
+//                values.put(MessageColumns.DATE, System.currentTimeMillis());
+//                values.put(MessageColumns.READ, 1);
+//                values.put(MessageColumns.TYPE, MessageColumns.TYPE_OUTBOX);
+//                values.put(MessageColumns.STATUS, MessageColumns.STATUS_SENDING);
+//                values.put(MessageColumns.THREAD_ID, chatMsg.getThreadID());
+//                ContentResolver resolver = mContext.getContentResolver();
+//                Uri uri = resolver.insert(MessageColumns.CONTENT_URI, values);
+                Uri uri = DBOP.insertMsg(mContext, chatMsg);
                 LogUtils.d(uri.toString());
 
                 chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
@@ -676,22 +696,26 @@ public class ConnectionManager {
             
             @Override
             public void call(Object... args) {
-                ContentValues values = new ContentValues();
-                values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
-                ContentResolver resolver = mContext.getContentResolver();
-                Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
-                resolver.update(uri, values, null, null);
+//                ContentValues values = new ContentValues();
+//                values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
+//                ContentResolver resolver = mContext.getContentResolver();
+//                Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
+//                resolver.update(uri, values, null, null);
+                chatMsg.setStatus(MessageColumns.STATUS_IDLE);
+                DBOP.markStatus(mContext, chatMsg);
                 defer.resolve();
             }
         }).fail(new Func() {
             
             @Override
             public void call(Object... args) {
-                ContentValues values = new ContentValues();
-                values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL);
-                ContentResolver resolver = mContext.getContentResolver();
-                Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
-                resolver.update(uri, values, null, null);
+//                ContentValues values = new ContentValues();
+//                values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL);
+//                ContentResolver resolver = mContext.getContentResolver();
+//                Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(chatMsg.getMsgID()));
+//                resolver.update(uri, values, null, null);
+                chatMsg.setStatus(MessageColumns.STATUS_FAIL);
+                DBOP.markStatus(mContext, chatMsg);
                 defer.resolve();
             }
         });
@@ -802,7 +826,7 @@ public class ConnectionManager {
                         @Override
                         public void run() {
                             String user = StringUtils.parseName(message.getFrom());
-                            long threadID = ThreadsHelper.getOrCreateThreadId(mContext, user);
+                            int threadID = ThreadsHelper.getOrCreateThreadId(mContext, user);
                             LogUtils.d("recv msg, threadid:" + threadID);
                             ContentValues values = new ContentValues();
                             values.put(MessageColumns.ADDRESS, user);

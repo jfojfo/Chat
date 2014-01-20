@@ -11,23 +11,24 @@ public class ChatMsg {
     private int type;
     private int read;
     private int status;
+    private int mediaType;
 
-    private long msgID;
-    private long threadID;
+    private int msgID;
+    private int threadID;
 
-    public long getMsgID() {
+    public int getMsgID() {
         return msgID;
     }
 
-    public void setMsgID(long msgID) {
+    public void setMsgID(int msgID) {
         this.msgID = msgID;
     }
 
-    public long getThreadID() {
+    public int getThreadID() {
         return threadID;
     }
 
-    public void setThreadID(long threadID) {
+    public void setThreadID(int threadID) {
         this.threadID = threadID;
     }
 
@@ -77,6 +78,14 @@ public class ChatMsg {
 
     public void setStatus(int status) {
         this.status = status;
+    }
+
+    public int getMediaType() {
+        return mediaType;
+    }
+
+    public void setMediaType(int mediaType) {
+        this.mediaType = mediaType;
     }
 
     public String toJson() {

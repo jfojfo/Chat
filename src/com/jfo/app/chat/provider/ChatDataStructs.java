@@ -181,7 +181,7 @@ public final class ChatDataStructs {
         private static final Uri THREAD_ID_CONTENT_URI = Uri.parse(
                 "content://" + AUTHORITY + "/" + THREAD_ID_QUERY_NAME);
         
-        public static long getOrCreateThreadId(Context context, String recipient) {
+        public static int getOrCreateThreadId(Context context, String recipient) {
             Uri.Builder uriBuilder = THREAD_ID_CONTENT_URI.buildUpon();
             uriBuilder.appendQueryParameter("recipient", recipient);
             Uri uri = uriBuilder.build();
@@ -191,7 +191,7 @@ public final class ChatDataStructs {
             if (cursor != null) {
                 try {
                     if (cursor.moveToFirst()) {
-                        return cursor.getLong(0);
+                        return cursor.getInt(0);
                     } else {
                         LogUtils.e("getOrCreateThreadId returned no rows!");
                     }

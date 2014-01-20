@@ -234,7 +234,7 @@ public class ChatProvider extends ContentProvider {
                 Uri result = ContentUris.withAppendedId(uri, rowId);
                 getContext().getContentResolver().notifyChange(result, null);
                 if (match == MESSAGE) {
-//                    Long threadId = initialValues.getAsLong(MessageColumns.THREAD_ID);
+//                    Integer threadId = initialValues.getAsInt(MessageColumns.THREAD_ID);
 //                    if (threadId != null)
 //                        updateThread(db, threadId);
                     getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
@@ -408,7 +408,7 @@ public class ChatProvider extends ContentProvider {
         getContext().getContentResolver().notifyChange(ThreadsColumns.CONTENT_URI, null);
     }
 
-    private void updateThread(SQLiteDatabase db, long threadId) {
+    private void updateThread(SQLiteDatabase db, int threadId) {
         int rows = db.delete(ThreadsColumns.TABLE_NAME,
                 "_id = ? AND _id NOT IN " +
                 "  (SELECT " + MessageColumns.THREAD_ID + " FROM " + MessageColumns.TABLE_NAME + ")",

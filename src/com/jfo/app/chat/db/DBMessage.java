@@ -8,7 +8,7 @@ import com.lidroid.xutils.db.annotation.Table;
 @Table(name = "message")
 public class DBMessage extends EntityBase {
     public String address;
-    private long thread_id;
+    private int thread_id;
     private String body;
     private long date;
     private String subject;
@@ -28,10 +28,10 @@ public class DBMessage extends EntityBase {
     public void setAddress(String address) {
         this.address = address;
     }
-    public long getThread_id() {
+    public int getThread_id() {
         return thread_id;
     }
-    public void setThread_id(long thread_id) {
+    public void setThread_id(int thread_id) {
         this.thread_id = thread_id;
     }
     public String getBody() {

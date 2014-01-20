@@ -1,10 +1,12 @@
 package com.jfo.app.chat;
 
 import java.io.File;
+import java.util.HashMap;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 
+import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -24,10 +26,8 @@ import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewStub;
-import android.widget.AdapterView.AdapterContextMenuInfo;
-import android.widget.AbsListView;
 import android.widget.AdapterView;
+import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.CursorAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -44,9 +44,7 @@ import com.jfo.app.chat.db.DBMessage;
 import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
-import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
-import com.jfo.app.chat.provider.ChatProvider;
 import com.libs.defer.Defer.Func;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.DbUtils;
@@ -58,9 +56,6 @@ import com.lidroid.xutils.util.LogUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
 import com.lidroid.xutils.view.annotation.event.OnClick;
 import com.lidroid.xutils.view.annotation.event.OnItemClick;
-import com.lidroid.xutils.view.annotation.event.OnScroll;
-import com.lidroid.xutils.view.annotation.event.OnScrollChanged;
-import com.lidroid.xutils.view.annotation.event.OnScrollStateChanged;
 
 public class ChatFragment extends Fragment {
     public static final String EXTRA_USER = "user";
@@ -75,7 +70,7 @@ public class ChatFragment extends Fragment {
     private ChatListAdapter mAdapter;
     
     private String mUser;
-    private long mThreadID;
+    private int mThreadID;
     
     private static final int ITEM_DELETE = 1;
     private static final int ITEM_RESEND = 2;
@@ -109,7 +104,7 @@ public class ChatFragment extends Fragment {
 
     private void initIntentData(Intent intent) {
         mUser = intent.getStringExtra(EXTRA_USER);
-        mThreadID = intent.getLongExtra(EXTRA_THREAD_ID, 0);
+        mThreadID = intent.getIntExtra(EXTRA_THREAD_ID, 0);
     }
     
     @Override
@@ -243,8 +238,8 @@ public class ChatFragment extends Fragment {
 
         AdapterContextMenuInfo info = (AdapterContextMenuInfo) menuInfo;
         int position = info.position - mList.getHeaderViewsCount();
-        Cursor cursor = (Cursor) mAdapter.getItem(position);
-        int status = cursor.getInt(cursor.getColumnIndex(MessageColumns.STATUS));
+        DBMessage dbmsg = mAdapter.getItem(position);
+        int status = dbmsg.getStatus();
         if (status == MessageColumns.STATUS_FAIL) {
             menu.add(0, ITEM_RESEND, 0, "重新发送");
         }
@@ -255,20 +250,26 @@ public class ChatFragment extends Fragment {
     public boolean onContextItemSelected(MenuItem item) {
         AdapterContextMenuInfo info = (AdapterContextMenuInfo) item.getMenuInfo();
         int position = info.position - mList.getHeaderViewsCount();
-        Cursor cursor = (Cursor) mAdapter.getItem(position);
+        DBMessage dbmsg = mAdapter.getItem(position);
 
         switch (item.getItemId()) {
         case ITEM_DELETE: {
-            long id = cursor.getLong(cursor.getColumnIndex(MessageColumns._ID));
-            getActivity().getContentResolver().delete(ContentUris.withAppendedId(
-                    MessageColumns.CONTENT_URI, id), null, null);
+            final long id = dbmsg.getId();
+            ConnectionManager.getInstance().dbOp(new RunnableWithDefer() {
+                
+                @Override
+                public void run() {
+                    getActivity().getContentResolver().delete(ContentUris.withAppendedId(
+                            MessageColumns.CONTENT_URI, id), null, null);
+                }
+            });
             break;
         }
         case ITEM_RESEND: {
-            long id = cursor.getLong(cursor.getColumnIndex(MessageColumns._ID));
-            String address = cursor.getString(cursor.getColumnIndex(MessageColumns.ADDRESS));
-            long threadID = cursor.getLong(cursor.getColumnIndex(MessageColumns.THREAD_ID));
-            String body = cursor.getString(cursor.getColumnIndex(MessageColumns.BODY));
+            int id = dbmsg.getId();
+            String address = dbmsg.getAddress();
+            int threadID = dbmsg.getThread_id();
+            String body = dbmsg.getBody();
             ChatMsg chatMsg = new ChatMsg();
             chatMsg.setMsgID(id);
             chatMsg.setAddress(address);
@@ -293,34 +294,15 @@ public class ChatFragment extends Fragment {
         return super.onContextItemSelected(item);
     }
 
-    @OnScrollStateChanged(R.id.list)
-    public void onScrollStateChanged(AbsListView view, int scrollState) {
-        
-    }
-
-    @OnScroll(R.id.list)
-    public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount,
-            int totalItemCount) {
-//        LogUtils.d(String.format("%d, %d, %d", firstVisibleItem, visibleItemCount, totalItemCount));
-//        if (visibleItemCount == 0 ||
-//                firstVisibleItem + visibleItemCount == totalItemCount) {
-//            mList.setTranscriptMode(ListView.TRANSCRIPT_MODE_ALWAYS_SCROLL);
-//            LogUtils.d("always scroll");
-//        } else {
-//            mList.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
-//            LogUtils.d("disabled");
-//        }
-    }
-    
     @OnItemClick(R.id.list)
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-        Cursor cursor = (Cursor) mAdapter.getItem(position);
-        DBMessage msg = CursorUtils.getEntity(ConnectionManager.getInstance().getDB(), 
-                cursor, DBMessage.class, 0);
-        if (msg.getMedia_type() == MessageColumns.MEDIA_FILE) {
+        DBMessage dbmsg = mAdapter.getItem(position);
+        if (dbmsg.getMedia_type() == MessageColumns.MEDIA_FILE) {
             DBAttachment attachment = null;
             try {
-                attachment = db.findFirst(Selector.from(DBAttachment.class).where("message_id", "=", msg.getId()));
+                attachment = db.findFirst(Selector
+                        .from(DBAttachment.class)
+                        .where("message_id", "=", dbmsg.getId()));
             } catch (DbException e1) {
                 e1.printStackTrace();
             }
@@ -339,7 +321,8 @@ public class ChatFragment extends Fragment {
     
     
     private static class ChatListAdapter extends CursorAdapter {
-        int screenWidth;
+        private int screenWidth;
+        private HashMap<Integer, DBAttachment> mAttachmentMap = new HashMap<Integer, DBAttachment>();
 
         public ChatListAdapter(Context context, Cursor c) {
             super(context, c, 0);
@@ -347,11 +330,25 @@ public class ChatFragment extends Fragment {
         }
 
         @Override
+        public DBMessage getItem(int position) {
+            Cursor cursor = (Cursor) super.getItem(position);
+            if (cursor == null)
+                return null;
+            return CursorUtils.getEntity(ConnectionManager.getInstance().getDB(), 
+                    cursor, DBMessage.class, 0);
+        }
+
+        public DBAttachment getAttachmentByMsgId(int id) {
+            return mAttachmentMap.get(id);
+        }
+        
+        @Override
         public void bindView(View view, Context context, Cursor cursor) {
-            String body = cursor.getString(cursor.getColumnIndex(MessageColumns.BODY));
-            int type = cursor.getInt(cursor.getColumnIndex(MessageColumns.TYPE));
-            int status = cursor.getInt(cursor.getColumnIndex(MessageColumns.STATUS));
-            int mediaType = cursor.getInt(cursor.getColumnIndex(MessageColumns.MEDIA_TYPE));
+            DBMessage dbmsg = getItem(cursor.getPosition());
+            String body = dbmsg.getBody();
+            int type = dbmsg.getType();
+            int status = dbmsg.getStatus();
+            int mediaType = dbmsg.getMedia_type();
             
             ViewHolder holder = (ViewHolder) view.getTag();
             IndicatorViewHolder indicatorHolder = (IndicatorViewHolder) holder.indicator.getTag();
@@ -383,46 +380,71 @@ public class ChatFragment extends Fragment {
             }
 
             if (mediaType == MessageColumns.MEDIA_FILE) {
-                bindViewForFile(view, context, cursor);
+                bindViewForFile(view, context, dbmsg);
             }
         }
         
-        private void bindViewForFile(View view, Context context, Cursor cursor) {
-            int id = cursor.getInt(cursor.getColumnIndex(MessageColumns._ID));
-            int status = cursor.getInt(cursor.getColumnIndex(MessageColumns.STATUS));
-            
+        private void bindViewForFile(View view, Context context, DBMessage dbmsg) {
+            final int id = dbmsg.getId();
+            int status = dbmsg.getStatus();
+
             ViewHolder holder = (ViewHolder) view.getTag();
             FileViewHolder fileHolder = (FileViewHolder) holder.fileItem.getTag();
             IndicatorViewHolder indicatorHolder = (IndicatorViewHolder) holder.indicator.getTag();
-            
+
             holder.tvMsg.setVisibility(View.GONE);
             holder.fileItem.setVisibility(View.VISIBLE);
 
-            DbUtils db = ConnectionManager.getInstance().getDB();
+            DBAttachment attachment = getAttachmentByMsgId(id);
+            if (attachment == null) {
+                ConnectionManager.getInstance().dbOp(new RunnableWithDefer((Activity)context) {
 
-            try {
-                DBAttachment attachment = db.findFirst(Selector.from(DBAttachment.class).where("message_id", "=", id));
-                if (attachment == null)
-                    return;
-                fileHolder.name.setText(attachment.getName());
-                fileHolder.size.setText("(" + FileUtils.byteCountToDisplaySize(attachment.getSize()) + ")");
+                    @Override
+                    public void run() {
+                        try {
+                            DbUtils db = ConnectionManager.getInstance().getDB();
+                            DBAttachment attachment = db.findFirst(Selector
+                                    .from(DBAttachment.class)
+                                    .where("message_id", "=", id));
+                            getDefer().resolve(attachment);
+                        } catch (DbException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).done(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        // this is run in UI thread
+                        DBAttachment dbatt = (DBAttachment) args[0];
+                        mAttachmentMap.put(id, dbatt);
+                        notifyDataSetChanged();
+                        LogUtils.d(dbatt.toString());
+                    }
+                });
+                return;
+            }
 
-                fileHolder.icon.setImageResource(R.drawable.file_normal_btn);
-                if (status == MessageColumns.STATUS_SENDING) {
-                    float percent = AttachmentHelper.getProgress(attachment.getId());
-                    int ipercent = (int) (percent * 100);
-                    indicatorHolder.progress.setVisibility(View.VISIBLE);
-                    indicatorHolder.percent.setText(String.format("%d%%", ipercent));
-                } else if (status == MessageColumns.STATUS_IDLE) {
-                    fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
-                } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
-                    fileHolder.icon.setImageResource(R.drawable.file_download_btn);
-                } else if (status == MessageColumns.STATUS_FAIL ||
-                        status == MessageColumns.STATUS_FAIL_UPLOADING) {
-                    fileHolder.icon.setImageResource(R.drawable.file_fail);
-                }
-            } catch (DbException e) {
-                e.printStackTrace();
+            fileHolder.name.setText(attachment.getName());
+            fileHolder.size.setText("("
+                    + FileUtils.byteCountToDisplaySize(attachment.getSize())
+                    + ")");
+
+            fileHolder.icon.setImageResource(R.drawable.file_normal_btn);
+            if (status == MessageColumns.STATUS_SENDING) {
+                float percent = AttachmentHelper
+                        .getProgress(attachment.getId());
+                int ipercent = (int) (percent * 100);
+                indicatorHolder.progress.setVisibility(View.VISIBLE);
+                indicatorHolder.percent
+                        .setText(String.format("%d%%", ipercent));
+            } else if (status == MessageColumns.STATUS_IDLE) {
+                fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
+            } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
+                fileHolder.icon.setImageResource(R.drawable.file_download_btn);
+            } else if (status == MessageColumns.STATUS_FAIL
+                    || status == MessageColumns.STATUS_FAIL_UPLOADING) {
+                fileHolder.icon.setImageResource(R.drawable.file_fail);
             }
         }
 
@@ -471,6 +493,7 @@ public class ChatFragment extends Fragment {
             TextView name;
             TextView size;
         }
+
     }
     
     private static String[] PROJECTION = {
@@ -512,7 +535,7 @@ public class ChatFragment extends Fragment {
             mAdapter.changeCursor(cursor);
             if (mThreadID == 0 && cursor != null && cursor.getCount() > 0) {
                 cursor.moveToFirst();
-                mThreadID = cursor.getLong(cursor.getColumnIndex(MessageColumns.THREAD_ID));
+                mThreadID = cursor.getInt(cursor.getColumnIndex(MessageColumns.THREAD_ID));
             }
         }
 

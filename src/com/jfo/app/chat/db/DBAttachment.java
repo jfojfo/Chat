@@ -14,7 +14,7 @@ public class DBAttachment extends EntityBase {
     private long create_time;
     private long modify_time;
     private String md5;
-    private long message_id;
+    private int message_id;
     private String local_path;
 
 //    @Finder(valueColumn = "id", targetColumn = "parentId")
@@ -82,11 +82,11 @@ public class DBAttachment extends EntityBase {
         this.md5 = md5;
     }
 
-    public long getMessage_id() {
+    public int getMessage_id() {
         return message_id;
     }
 
-    public void setMessage_id(long message_id) {
+    public void setMessage_id(int message_id) {
         this.message_id = message_id;
     }
 
