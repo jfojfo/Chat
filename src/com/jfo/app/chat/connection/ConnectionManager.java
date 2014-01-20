@@ -42,6 +42,7 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.text.TextUtils;
 
 import com.googlecode.androidannotations.api.BackgroundExecutor;
 import com.jfo.app.chat.Constants;
@@ -451,7 +452,11 @@ public class ConnectionManager {
 
                             @Override
                             public void run() {
-                                uploadFile(defer, fileMsg);
+                                if (fileMsg.getInfo() == null || 
+                                        TextUtils.isEmpty(fileMsg.getInfo().path))
+                                    uploadFile(defer, fileMsg);
+                                else
+                                    doSendMsg(defer, fileMsg);
                             }
                         });
                     }

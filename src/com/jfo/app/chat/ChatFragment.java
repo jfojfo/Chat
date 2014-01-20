@@ -44,6 +44,7 @@ import com.jfo.app.chat.db.DBMessage;
 import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
+import com.jfo.app.chat.proto.BDUploadFileResult;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.libs.defer.Defer.Func;
 import com.libs.utils.Utils;
@@ -240,7 +241,8 @@ public class ChatFragment extends Fragment {
         int position = info.position - mList.getHeaderViewsCount();
         DBMessage dbmsg = mAdapter.getItem(position);
         int status = dbmsg.getStatus();
-        if (status == MessageColumns.STATUS_FAIL) {
+        if (status == MessageColumns.STATUS_FAIL
+                || status == MessageColumns.STATUS_FAIL_UPLOADING) {
             menu.add(0, ITEM_RESEND, 0, "重新发送");
         }
         menu.add(0, ITEM_DELETE, 0, "删除");
@@ -266,34 +268,91 @@ public class ChatFragment extends Fragment {
             break;
         }
         case ITEM_RESEND: {
-            int id = dbmsg.getId();
-            String address = dbmsg.getAddress();
-            int threadID = dbmsg.getThread_id();
-            String body = dbmsg.getBody();
-            ChatMsg chatMsg = new ChatMsg();
-            chatMsg.setMsgID(id);
-            chatMsg.setAddress(address);
-            chatMsg.setBody(body);
-            chatMsg.setThreadID(threadID);
-            ConnectionManager.getInstance().sendMessage(getActivity(), chatMsg).done(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    LogUtils.d("resend msg success");
-                }
-            }).fail(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    LogUtils.d("resend msg fail");
-                }
-            });
+            if (dbmsg.getMedia_type() == MessageColumns.MEDIA_NORMAL) {
+                resendMsg(dbmsg);
+            } else if (dbmsg.getMedia_type() == MessageColumns.MEDIA_FILE) {
+                resendFile(dbmsg);
+            }
             break;
         }
         }
         return super.onContextItemSelected(item);
     }
 
+    private void resendMsg(DBMessage dbmsg) {
+        int id = dbmsg.getId();
+        String address = dbmsg.getAddress();
+        int threadID = dbmsg.getThread_id();
+        String body = dbmsg.getBody();
+        ChatMsg chatMsg = new ChatMsg();
+        chatMsg.setMsgID(id);
+        chatMsg.setThreadID(threadID);
+        chatMsg.setAddress(address);
+        chatMsg.setBody(body);
+        ConnectionManager.getInstance().sendMessage(getActivity(), chatMsg).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                LogUtils.d("resend msg success");
+            }
+        }).fail(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                LogUtils.d("resend msg fail");
+            }
+        });
+    }
+    
+    private void resendFile(DBMessage dbmsg) {
+        DBAttachment attachment = null;
+        try {
+            attachment = db.findFirst(Selector
+                    .from(DBAttachment.class)
+                    .where("message_id", "=", dbmsg.getId()));
+        } catch (DbException e) {
+            e.printStackTrace();
+        }
+        if (attachment != null && attachment.getLocal_path() != null) {
+            FileMsg fileMsg = new FileMsg();
+            fileMsg.setMsgID(dbmsg.getId());
+            fileMsg.setThreadID(dbmsg.getThread_id());
+            fileMsg.setAddress(dbmsg.getAddress());
+            fileMsg.setBody(dbmsg.getBody());
+            fileMsg.setAttachmentId(attachment.getId());
+            fileMsg.setFile(attachment.getLocal_path());
+            BDUploadFileResult info = new BDUploadFileResult();
+            info.ctime = attachment.getCreate_time();
+            info.mtime = attachment.getModify_time();
+            info.md5 = attachment.getMd5();
+            info.size = attachment.getSize();
+            info.path = attachment.getUrl();
+            fileMsg.setInfo(info);
+            ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    Utils.showMessage(getActivity(), "resend file success");
+                }
+            }).fail(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    Utils.showMessage(getActivity(), "resend file fail");
+                }
+            }).progress(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    FileMsg fileMsg = (FileMsg) args[0];
+                    long total = (Long) args[1];
+                    long curr = (Long) args[2];
+                    mAdapter.notifyDataSetChanged();
+                }
+            });
+        }
+    }
+    
     @OnItemClick(R.id.list)
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
         DBMessage dbmsg = mAdapter.getItem(position);
