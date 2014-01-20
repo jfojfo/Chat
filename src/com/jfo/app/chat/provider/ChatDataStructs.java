@@ -67,6 +67,7 @@ public final class ChatDataStructs {
         public static final int STATUS_FAIL = 1;
         public static final int STATUS_SENDING = 2;
         public static final int STATUS_PENDING_TO_DOWNLOAD = 3;
+        public static final int STATUS_FAIL_UPLOADING = 4;
 
         /**
          * <P>Type: STRING</P>

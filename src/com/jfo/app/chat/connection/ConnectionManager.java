@@ -55,6 +55,7 @@ import com.jfo.app.chat.connection.ex.XMPPFileExtension;
 import com.jfo.app.chat.connection.ex.XMPPFileExtensionProvider;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
+import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper;
 import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
@@ -128,7 +129,7 @@ public class ConnectionManager {
 
         db = DbUtils.create(context, ChatProvider.DATABASE_NAME);
         db.configAllowTransaction(true);
-        db.configDebug(true);
+        db.configDebug(false);
 
         // this will register providers in ConfigureProviderManager.java
         SmackAndroid.init(mContext);
@@ -484,6 +485,7 @@ public class ConnectionManager {
     }
     
     private void uploadFile(final MyDefer defer, final FileMsg fileMsg) {
+        String failMsg = "";
         try {
             File file = new File(fileMsg.getFile());
 
@@ -496,9 +498,10 @@ public class ConnectionManager {
 
             HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.POST, Constants.URL_UPLOAD_FILE_OLD);
             request.setRequestParams(params, new RequestCallBackHandler() {
-                
+
                 @Override
                 public boolean updateProgress(long total, long current, boolean forceUpdateUI) {
+                    AttachmentHelper.setProgress(fileMsg.getAttachmentId(), current, total);
                     defer.notify(fileMsg, total, current);
                     return true;
                 }
@@ -519,17 +522,22 @@ public class ConnectionManager {
                         doUpdateAttachment(defer, fileMsg);
                         return;
                     }
+                    failMsg = result;
                     BDError err = G.fromJson(result, BDError.class);
                     if (err != null) {
-                        defer.reject(err.error_msg + "(code:" + err.error_code + ")");
-                        return;
+                        failMsg = err.error_msg + "(code:" + err.error_code + ")";
                     }
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        defer.reject();
+        ContentValues values = new ContentValues();
+        values.put(MessageColumns.STATUS, MessageColumns.STATUS_FAIL_UPLOADING);
+        ContentResolver resolver = mContext.getContentResolver();
+        Uri uri = Uri.withAppendedPath(MessageColumns.CONTENT_URI, String.valueOf(fileMsg.getMsgID()));
+        resolver.update(uri, values, null, null);
+        defer.reject(failMsg);
     }
     
     private void doUpdateAttachment(final MyDefer defer, final FileMsg fileMsg) {

@@ -26,6 +26,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.widget.AdapterView.AdapterContextMenuInfo;
+import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.CursorAdapter;
 import android.widget.EditText;
@@ -57,6 +58,9 @@ import com.lidroid.xutils.util.LogUtils;
 import com.lidroid.xutils.view.annotation.ViewInject;
 import com.lidroid.xutils.view.annotation.event.OnClick;
 import com.lidroid.xutils.view.annotation.event.OnItemClick;
+import com.lidroid.xutils.view.annotation.event.OnScroll;
+import com.lidroid.xutils.view.annotation.event.OnScrollChanged;
+import com.lidroid.xutils.view.annotation.event.OnScrollStateChanged;
 
 public class ChatFragment extends Fragment {
     public static final String EXTRA_USER = "user";
@@ -76,17 +80,13 @@ public class ChatFragment extends Fragment {
     private static final int ITEM_DELETE = 1;
     private static final int ITEM_RESEND = 2;
     
-    private DbUtils db;
+    private DbUtils db = ConnectionManager.getInstance().getDB();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setHasOptionsMenu(true);
         getActivity().getActionBar().setDisplayHomeAsUpEnabled(true);
-
-        db = DbUtils.create(getActivity(), ChatProvider.DATABASE_NAME);
-        db.configAllowTransaction(true);
-        db.configDebug(true);
     }
 
     @Override
@@ -229,9 +229,9 @@ public class ChatFragment extends Fragment {
                 FileMsg fileMsg = (FileMsg) args[0];
                 long total = (Long) args[1];
                 long curr = (Long) args[2];
-                LogUtils.d(String.format("total:%d, curr:%d", total, curr));
-                AttachmentHelper.setProgress(fileMsg.getAttachmentId(), ((float)curr)/total);
-                mAdapter.notifyDataSetInvalidated();
+                // LogUtils.d(String.format("total:%d, curr:%d", total, curr));
+//                mAdapter.notifyDataSetInvalidated();
+                mAdapter.notifyDataSetChanged();
             }
         });
     }
@@ -293,6 +293,25 @@ public class ChatFragment extends Fragment {
         return super.onContextItemSelected(item);
     }
 
+    @OnScrollStateChanged(R.id.list)
+    public void onScrollStateChanged(AbsListView view, int scrollState) {
+        
+    }
+
+    @OnScroll(R.id.list)
+    public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount,
+            int totalItemCount) {
+//        LogUtils.d(String.format("%d, %d, %d", firstVisibleItem, visibleItemCount, totalItemCount));
+//        if (visibleItemCount == 0 ||
+//                firstVisibleItem + visibleItemCount == totalItemCount) {
+//            mList.setTranscriptMode(ListView.TRANSCRIPT_MODE_ALWAYS_SCROLL);
+//            LogUtils.d("always scroll");
+//        } else {
+//            mList.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
+//            LogUtils.d("disabled");
+//        }
+    }
+    
     @OnItemClick(R.id.list)
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
         Cursor cursor = (Cursor) mAdapter.getItem(position);
@@ -398,7 +417,8 @@ public class ChatFragment extends Fragment {
                     fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
                 } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
                     fileHolder.icon.setImageResource(R.drawable.file_download_btn);
-                } else if (status == MessageColumns.STATUS_FAIL) {
+                } else if (status == MessageColumns.STATUS_FAIL ||
+                        status == MessageColumns.STATUS_FAIL_UPLOADING) {
                     fileHolder.icon.setImageResource(R.drawable.file_fail);
                 }
             } catch (DbException e) {

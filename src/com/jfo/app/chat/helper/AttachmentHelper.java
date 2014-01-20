@@ -11,7 +11,14 @@ public class AttachmentHelper {
     public static void setProgress(long attachmentId, float percent) {
         mProgressMap.put(attachmentId, percent);
     }
-    
+
+    public static void setProgress(long attachmentId, long curr, long total) {
+        float percent = 0.0f;
+        if (total != 0)
+            percent = ((float)curr) / total;
+        mProgressMap.put(attachmentId, percent);
+    }
+
     public static float getProgress(long attachmentId) {
         Float ret = mProgressMap.get(attachmentId);
         if (ret == null)
@@ -55,7 +62,7 @@ public class AttachmentHelper {
         }
         return "application/*";
     }
-    
+
     public static final int FILE_TYPE_FILE = 0;
     public static final int FILE_TYPE_AUDIO = 1;
     public static final int FILE_TYPE_VIDEO = 2;
