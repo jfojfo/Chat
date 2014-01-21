@@ -68,6 +68,8 @@ public final class ChatDataStructs {
         public static final int STATUS_SENDING = 2;
         public static final int STATUS_PENDING_TO_DOWNLOAD = 3;
         public static final int STATUS_FAIL_UPLOADING = 4;
+        public static final int STATUS_FAIL_DOWNLOADING = 5;
+        public static final int STATUS_DOWNLOADING = 6;
 
         /**
          * <P>Type: STRING</P>
@@ -110,6 +112,7 @@ public final class ChatDataStructs {
                 + ");";
 
         public static final String DEFAULT_SORT_ORDER = "date desc";
+
     }
 
     public interface ThreadsColumns extends BaseColumns {

@@ -232,7 +232,6 @@ public class ChatFragment extends Fragment {
                 long total = (Long) args[1];
                 long curr = (Long) args[2];
                 // LogUtils.d(String.format("total:%d, curr:%d", total, curr));
-//                mAdapter.notifyDataSetInvalidated();
                 mAdapter.notifyDataSetChanged();
             }
         });
@@ -360,25 +359,77 @@ public class ChatFragment extends Fragment {
     
     @OnItemClick(R.id.list)
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-        DBMessage dbmsg = mAdapter.getItem(position);
+        final DBMessage dbmsg = mAdapter.getItem(position);
         if (dbmsg.getMedia_type() == MessageColumns.MEDIA_FILE) {
-            DBAttachment attachment = null;
-            try {
-                attachment = db.findFirst(Selector
-                        .from(DBAttachment.class)
-                        .where("message_id", "=", dbmsg.getId()));
-            } catch (DbException e1) {
-                e1.printStackTrace();
-            }
-            if (attachment != null && attachment.getLocal_path() != null) {
-                try {
-                    Uri uri = Uri.fromFile(new File(attachment.getLocal_path()));
-                    Intent intent = new Intent( Intent.ACTION_VIEW );
-                    intent.setDataAndType(uri, AttachmentHelper.getFileMIME(attachment.getLocal_path()));
-                    startActivity(intent);
-                } catch (ActivityNotFoundException e) {
-                    Utils.showMessage(getActivity(), "Cannot find application to open file");
-                }
+            int status = dbmsg.getStatus();
+            if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD
+                    || status == MessageColumns.STATUS_FAIL_DOWNLOADING) {
+                mAttachmentLoader.load(dbmsg.getId()).done(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        DBAttachment attachment = (DBAttachment) args[0];
+                        FileMsg fileMsg = new FileMsg();
+                        fileMsg.setAddress(dbmsg.getAddress());
+                        fileMsg.setBody(dbmsg.getBody());
+                        fileMsg.setDate(dbmsg.getDate());
+                        fileMsg.setMsgID(dbmsg.getId());
+                        fileMsg.setMediaType(dbmsg.getMedia_type());
+                        fileMsg.setRead(dbmsg.getRead());
+                        fileMsg.setThreadID(dbmsg.getThread_id());
+                        fileMsg.setStatus(dbmsg.getStatus());
+                        fileMsg.setFile(dbmsg.getBody());
+                        fileMsg.setAttachmentId(attachment.getId());
+                        BDUploadFileResult info = new BDUploadFileResult();
+                        info.path = attachment.getUrl();
+                        info.size = attachment.getSize();
+                        info.md5 = attachment.getMd5();
+                        info.ctime = attachment.getCreate_time();
+                        info.mtime = attachment.getModify_time();
+                        fileMsg.setInfo(info);
+                        ConnectionManager.getInstance().downloadFile(getActivity(), fileMsg).done(new Func() {
+                            
+                            @Override
+                            public void call(Object... args) {
+                                Utils.showMessage(getActivity(), "download attachment success");
+                            }
+                        }).fail(new Func() {
+                            
+                            @Override
+                            public void call(Object... args) {
+                                Utils.showMessage(getActivity(), "download attachment fail");
+                            }
+                        }).progress(new Func() {
+                            
+                            @Override
+                            public void call(Object... args) {
+                                FileMsg fileMsg = (FileMsg) args[0];
+                                long total = (Long) args[1];
+                                long curr = (Long) args[2];
+                                // LogUtils.d(String.format("total:%d, curr:%d", total, curr));
+                                mAdapter.notifyDataSetChanged();
+                            }
+                        });
+                    }
+                });
+            } else if (status == MessageColumns.STATUS_IDLE) {
+                mAttachmentLoader.load(dbmsg.getId()).done(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        DBAttachment attachment = (DBAttachment) args[0];
+                        if (attachment != null && attachment.getLocal_path() != null) {
+                            try {
+                                Uri uri = Uri.fromFile(new File(attachment.getLocal_path()));
+                                Intent intent = new Intent( Intent.ACTION_VIEW );
+                                intent.setDataAndType(uri, AttachmentHelper.getFileMIME(attachment.getLocal_path()));
+                                startActivity(intent);
+                            } catch (ActivityNotFoundException e) {
+                                Utils.showMessage(getActivity(), "Cannot find application to open file");
+                            }
+                        }
+                    }
+                });
             }
         }
     }
@@ -467,12 +518,13 @@ public class ChatFragment extends Fragment {
                         return;
                     fileHolder.name.setText(attachment.getName());
                     fileHolder.size.setText("("
-                            + FileUtils.byteCountToDisplaySize(attachment.getSize())
+                            + Utils.byteCountToDisplaySize(attachment.getSize())
                             + ")");
 
                     fileHolder.icon.setImageResource(R.drawable.file_normal_btn);
                     int status = dbmsg.getStatus();
-                    if (status == MessageColumns.STATUS_SENDING) {
+                    if (status == MessageColumns.STATUS_SENDING ||
+                            status == MessageColumns.STATUS_DOWNLOADING) {
                         float percent = AttachmentHelper
                                 .getProgress(attachment.getId());
                         int ipercent = (int) (percent * 100);
@@ -482,6 +534,8 @@ public class ChatFragment extends Fragment {
                     } else if (status == MessageColumns.STATUS_IDLE) {
                         fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
                     } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
+                        fileHolder.icon.setImageResource(R.drawable.file_download_btn);
+                    } else if (status == MessageColumns.STATUS_FAIL_DOWNLOADING) {
                         fileHolder.icon.setImageResource(R.drawable.file_download_btn);
                     } else if (status == MessageColumns.STATUS_FAIL
                             || status == MessageColumns.STATUS_FAIL_UPLOADING) {

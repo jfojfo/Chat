@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import org.apache.commons.io.FilenameUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
@@ -26,6 +27,7 @@ import org.jivesoftware.smack.SmackConfiguration;
 import org.jivesoftware.smack.XMPPConnection;
 import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.Packet;
+import org.jivesoftware.smack.packet.PacketExtension;
 import org.jivesoftware.smack.packet.Presence;
 import org.jivesoftware.smack.packet.RosterPacket.ItemStatus;
 import org.jivesoftware.smack.packet.RosterPacket.ItemType;
@@ -36,8 +38,6 @@ import org.jivesoftware.smackx.filetransfer.OutgoingFileTransfer;
 import org.jivesoftware.smackx.packet.VCard;
 
 import android.app.Activity;
-import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
@@ -65,11 +65,13 @@ import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.DbUtils;
 import com.lidroid.xutils.http.RequestParams;
+import com.lidroid.xutils.http.callback.FileDownloadHandler;
 import com.lidroid.xutils.http.callback.RequestCallBackHandler;
 import com.lidroid.xutils.http.callback.StringDownloadHandler;
 import com.lidroid.xutils.http.client.HttpRequest;
 import com.lidroid.xutils.http.client.entity.FileUploadEntity;
 import com.lidroid.xutils.util.LogUtils;
+import com.lidroid.xutils.util.OtherUtils;
 
 public class ConnectionManager {
     public static final String XMPP_SERVER = "xmpp.pickbox.me";
@@ -255,7 +257,30 @@ public class ConnectionManager {
         }
         defer.reject();
     }
+    
+    public Promise logout(Activity activity) {
+        final MyDefer defer = new MyDefer(activity);
+        mConnHandler.post(new Runnable() {
+            
+            @Override
+            public void run() {
+                doLogout(defer);
+            }
+        });
+        return defer.promise();
+    }
 
+    private void doLogout(MyDefer defer) {
+        try {
+            mConnection.disconnect();
+            Utils.removePref(mContext, Constants.PREF_USERNAME);
+            Utils.removePref(mContext, Constants.PREF_PASSWORD);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        defer.reject();
+    }
+    
     public Promise reconnect() {
         final MyDefer defer = new MyDefer();
         mConnHandler.post(new Runnable() {
@@ -445,20 +470,15 @@ public class ConnectionManager {
             
             @Override
             public void call(Object... args) {
-                mConnHandler.post(new Runnable() {
+                BackgroundExecutor.execute(new Runnable() {
+
                     @Override
                     public void run() {
-                        BackgroundExecutor.execute(new Runnable() {
-
-                            @Override
-                            public void run() {
-                                if (fileMsg.getInfo() == null || 
-                                        TextUtils.isEmpty(fileMsg.getInfo().path))
-                                    uploadFile(defer, fileMsg);
-                                else
-                                    doSendMsg(defer, fileMsg);
-                            }
-                        });
+                        if (fileMsg.getInfo() == null || 
+                                TextUtils.isEmpty(fileMsg.getInfo().path))
+                            uploadFile(defer, fileMsg);
+                        else
+                            doSendMsg(defer, fileMsg);
                     }
                 });
             }
@@ -546,7 +566,115 @@ public class ConnectionManager {
             }
         });
     }
+    
+    public Promise downloadFile(Activity activity, final FileMsg fileMsg) {
+        final MyDefer defer = new MyDefer(activity);
+        BackgroundExecutor.execute(new Runnable() {
 
+            @Override
+            public void run() {
+                dbOp(new RunnableWithDefer() {
+                    
+                    @Override
+                    public void run() {
+                        fileMsg.setStatus(MessageColumns.STATUS_DOWNLOADING);
+                        DBOP.inserOrUpdateMsg(mContext, fileMsg);
+                        getDefer().resolve();
+                    }
+                }).done(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        doGetFileUrl(defer, fileMsg);
+                    }
+                });
+            }
+        });
+        return defer.promise();
+    }
+    
+    private void doGetFileUrl(final MyDefer defer, FileMsg fileMsg) {
+        String remotePath = null;
+        if (fileMsg.getInfo() != null && !TextUtils.isEmpty(fileMsg.getInfo().path)) {
+            remotePath = fileMsg.getInfo().path;
+        }
+        if (remotePath == null) {
+            defer.reject();
+            return;
+        }
+        try {
+            RequestParams params = new RequestParams();
+            params.addQueryStringParameter("path", remotePath);
+            HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.GET, Constants.URL_GET_FILE_URL_OLD);
+            request.setRequestParams(params);
+
+            HttpClient client = new DefaultHttpClient();
+            HttpResponse resp = client.execute(request);
+
+            int code = resp.getStatusLine().getStatusCode();
+            LogUtils.d("code: " + code);
+            if (code == HttpStatus.SC_OK) {
+                HttpEntity entity = resp.getEntity();
+                String result = new StringDownloadHandler().handleEntity(entity, null, "utf8");
+                LogUtils.d("result: " + result);
+                doDownloadFile(defer, fileMsg, result);
+                return;
+            }
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        fileMsg.setStatus(MessageColumns.STATUS_FAIL_DOWNLOADING);
+        DBOP.inserOrUpdateMsg(mContext, fileMsg);
+        defer.reject();
+    }
+
+    private void doDownloadFile(final MyDefer defer, final FileMsg fileMsg, String url) {
+        long size = fileMsg.getInfo().size;
+        String localPath = Constants.ATTACHMENT_DIR + "/" + fileMsg.getFile();
+        try {
+            RequestParams params = new RequestParams();
+            HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.GET, url);
+            request.setRequestParams(params);
+
+            HttpClient client = new DefaultHttpClient();
+            HttpResponse resp = client.execute(request);
+
+            int code = resp.getStatusLine().getStatusCode();
+            LogUtils.d("code: " + code);
+            if (code == HttpStatus.SC_OK) {
+                HttpEntity entity = resp.getEntity();
+                boolean autoResume = OtherUtils.isSupportRange(resp);
+                String responseFileName = OtherUtils.getFileNameFromHttpResponse(resp);
+                File result = new FileDownloadHandler().handleEntity(entity, new RequestCallBackHandler() {
+                    
+                    @Override
+                    public boolean updateProgress(long total, long current,
+                            boolean forceUpdateUI) {
+                        float percent = 0.0f;
+                        if (total != 0)
+                            percent = (float) current / total;
+                        AttachmentHelper.setProgress(fileMsg.getAttachmentId(), percent);
+                        defer.notify(fileMsg, total, current);
+                        return true;
+                    }
+                }, localPath, autoResume, null/*responseFileName*/);
+                LogUtils.d("result: " + result.getName());
+
+                fileMsg.setStatus(MessageColumns.STATUS_IDLE);
+                DBOP.inserOrUpdateMsg(mContext, fileMsg);
+
+                defer.resolve();
+                return;
+            }
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        fileMsg.setStatus(MessageColumns.STATUS_FAIL_DOWNLOADING);
+        DBOP.inserOrUpdateMsg(mContext, fileMsg);
+        defer.reject();
+    }
 
     // TODO dbOp.done().fail() is useless! no place to call defer.resolve() or defer.reject()
     public Promise dbOp(RunnableWithDefer action) {
@@ -699,7 +827,6 @@ public class ConnectionManager {
                 try {
                     final Packet packet = takeFromQueue(mIncommingMsgQueue);
                     final Message message = (Message) packet;
-
                     putToQueue(mDBOpQueue, new Runnable() {
                         
                         @Override
@@ -707,16 +834,34 @@ public class ConnectionManager {
                             String user = StringUtils.parseName(message.getFrom());
                             int threadID = ThreadsHelper.getOrCreateThreadId(mContext, user);
                             LogUtils.d("recv msg, threadid:" + threadID);
-                            ContentValues values = new ContentValues();
-                            values.put(MessageColumns.ADDRESS, user);
-                            values.put(MessageColumns.THREAD_ID, threadID);
-                            values.put(MessageColumns.BODY, message.getBody());
-                            values.put(MessageColumns.DATE, System.currentTimeMillis());
-                            values.put(MessageColumns.READ, 0);
-                            values.put(MessageColumns.TYPE, MessageColumns.TYPE_INBOX);
-                            values.put(MessageColumns.STATUS, MessageColumns.STATUS_IDLE);
-                            ContentResolver resolver = mContext.getContentResolver();
-                            resolver.insert(MessageColumns.CONTENT_URI, values);
+
+                            ChatMsg chatMsg = new ChatMsg();
+                            chatMsg.setAddress(user);
+                            chatMsg.setThreadID(threadID);
+                            chatMsg.setBody(message.getBody());
+                            chatMsg.setDate(System.currentTimeMillis());
+                            chatMsg.setRead(0);
+                            chatMsg.setType(MessageColumns.TYPE_INBOX);
+                            chatMsg.setStatus(MessageColumns.STATUS_IDLE);
+                            chatMsg.setMediaType(MessageColumns.MEDIA_NORMAL);
+                            Uri uri = DBOP.inserOrUpdateMsg(mContext, chatMsg);
+                            chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
+                            
+                            Collection<PacketExtension> extensions = message.getExtensions();
+                            for (PacketExtension ex : extensions) {
+                                if (ex instanceof XMPPFileExtension) {
+                                    chatMsg.setMediaType(MessageColumns.MEDIA_FILE);
+                                    chatMsg.setStatus(MessageColumns.STATUS_PENDING_TO_DOWNLOAD);
+                                    DBOP.inserOrUpdateMsg(mContext, chatMsg);
+
+                                    BDUploadFileResult info = ((XMPPFileExtension) ex).getInfo();
+                                    FileMsg fileMsg = new FileMsg();
+                                    fileMsg.setMsgID(chatMsg.getMsgID());
+                                    fileMsg.setFile(chatMsg.getBody());
+                                    fileMsg.setInfo(info);
+                                    DBOP.insertOrUpdateAttachment(mContext, fileMsg);
+                                }
+                            }
                         }
                     });
                 } catch (Exception e) {

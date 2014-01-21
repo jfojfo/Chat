@@ -8,6 +8,7 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
+import android.text.TextUtils;
 
 import com.jfo.app.chat.proto.BDUploadFileResult;
 import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
@@ -48,8 +49,10 @@ public class DBOP {
         ContentValues values = new ContentValues();
         values.put(AttachmentsColumns.NAME, FilenameUtils.getName(fileMsg.getFile()));
         values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
-        values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
-        values.put(AttachmentsColumns.SIZE, new File(fileMsg.getFile()).length());
+        if (!TextUtils.isEmpty(fileMsg.getFile())) {
+            values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
+            values.put(AttachmentsColumns.SIZE, new File(fileMsg.getFile()).length());
+        }
         BDUploadFileResult info = fileMsg.getInfo();
         if (info != null) {
             values.put(AttachmentsColumns.CREATE_TIME, info.ctime);

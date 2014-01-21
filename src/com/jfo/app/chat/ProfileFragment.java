@@ -87,4 +87,9 @@ public class ProfileFragment extends Fragment {
         });
     }
 
+    @OnClick(R.id.logout)
+    public void onLogout(View view) {
+        ConnectionManager.getInstance().logout(getActivity());
+    }
+
 }
