@@ -2,6 +2,7 @@ package com.jfo.app.chat;
 
 import java.io.File;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
@@ -42,11 +43,13 @@ import com.jfo.app.chat.connection.FileMsg;
 import com.jfo.app.chat.db.DBAttachment;
 import com.jfo.app.chat.db.DBMessage;
 import com.jfo.app.chat.helper.AttachmentHelper;
+import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
 import com.jfo.app.chat.proto.BDUploadFileResult;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.libs.defer.Defer.Func;
+import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.DbUtils;
 import com.lidroid.xutils.ViewUtils;
@@ -77,6 +80,7 @@ public class ChatFragment extends Fragment {
     private static final int ITEM_RESEND = 2;
     
     private DbUtils db = ConnectionManager.getInstance().getDB();
+    private AttachmentLoader mAttachmentLoader;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -101,6 +105,8 @@ public class ChatFragment extends Fragment {
         mList.setAdapter(mAdapter);
         registerForContextMenu(mList);
         getLoaderManager().initLoader(0, null, mLoader);
+        mAttachmentLoader = new AttachmentLoader(getActivity());
+        mAdapter.setAttachmentLoader(mAttachmentLoader);
     }
 
     private void initIntentData(Intent intent) {
@@ -304,53 +310,52 @@ public class ChatFragment extends Fragment {
         });
     }
     
-    private void resendFile(DBMessage dbmsg) {
-        DBAttachment attachment = null;
-        try {
-            attachment = db.findFirst(Selector
-                    .from(DBAttachment.class)
-                    .where("message_id", "=", dbmsg.getId()));
-        } catch (DbException e) {
-            e.printStackTrace();
-        }
-        if (attachment != null && attachment.getLocal_path() != null) {
-            FileMsg fileMsg = new FileMsg();
-            fileMsg.setMsgID(dbmsg.getId());
-            fileMsg.setThreadID(dbmsg.getThread_id());
-            fileMsg.setAddress(dbmsg.getAddress());
-            fileMsg.setBody(dbmsg.getBody());
-            fileMsg.setAttachmentId(attachment.getId());
-            fileMsg.setFile(attachment.getLocal_path());
-            BDUploadFileResult info = new BDUploadFileResult();
-            info.ctime = attachment.getCreate_time();
-            info.mtime = attachment.getModify_time();
-            info.md5 = attachment.getMd5();
-            info.size = attachment.getSize();
-            info.path = attachment.getUrl();
-            fileMsg.setInfo(info);
-            ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    Utils.showMessage(getActivity(), "resend file success");
+    private void resendFile(final DBMessage dbmsg) {
+        mAttachmentLoader.load(dbmsg.getId()).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                DBAttachment attachment = (DBAttachment) args[0];
+                if (attachment != null && attachment.getLocal_path() != null) {
+                    FileMsg fileMsg = new FileMsg();
+                    fileMsg.setMsgID(dbmsg.getId());
+                    fileMsg.setThreadID(dbmsg.getThread_id());
+                    fileMsg.setAddress(dbmsg.getAddress());
+                    fileMsg.setBody(dbmsg.getBody());
+                    fileMsg.setAttachmentId(attachment.getId());
+                    fileMsg.setFile(attachment.getLocal_path());
+                    BDUploadFileResult info = new BDUploadFileResult();
+                    info.ctime = attachment.getCreate_time();
+                    info.mtime = attachment.getModify_time();
+                    info.md5 = attachment.getMd5();
+                    info.size = attachment.getSize();
+                    info.path = attachment.getUrl();
+                    fileMsg.setInfo(info);
+                    ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
+                        
+                        @Override
+                        public void call(Object... args) {
+                            Utils.showMessage(getActivity(), "resend file success");
+                        }
+                    }).fail(new Func() {
+                        
+                        @Override
+                        public void call(Object... args) {
+                            Utils.showMessage(getActivity(), "resend file fail");
+                        }
+                    }).progress(new Func() {
+                        
+                        @Override
+                        public void call(Object... args) {
+                            FileMsg fileMsg = (FileMsg) args[0];
+                            long total = (Long) args[1];
+                            long curr = (Long) args[2];
+                            mAdapter.notifyDataSetChanged();
+                        }
+                    });
                 }
-            }).fail(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    Utils.showMessage(getActivity(), "resend file fail");
-                }
-            }).progress(new Func() {
-                
-                @Override
-                public void call(Object... args) {
-                    FileMsg fileMsg = (FileMsg) args[0];
-                    long total = (Long) args[1];
-                    long curr = (Long) args[2];
-                    mAdapter.notifyDataSetChanged();
-                }
-            });
-        }
+            }
+        });
     }
     
     @OnItemClick(R.id.list)
@@ -381,11 +386,15 @@ public class ChatFragment extends Fragment {
     
     private static class ChatListAdapter extends CursorAdapter {
         private int screenWidth;
-        private HashMap<Integer, DBAttachment> mAttachmentMap = new HashMap<Integer, DBAttachment>();
+        private AttachmentLoader mAttachmentLoader;
 
         public ChatListAdapter(Context context, Cursor c) {
             super(context, c, 0);
             screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+        }
+        
+        public void setAttachmentLoader(AttachmentLoader loader) {
+            mAttachmentLoader = loader;
         }
 
         @Override
@@ -397,10 +406,6 @@ public class ChatFragment extends Fragment {
                     cursor, DBMessage.class, CursorUtils.FindCacheSequence.getSeq());
         }
 
-        public DBAttachment getAttachmentByMsgId(int id) {
-            return mAttachmentMap.get(id);
-        }
-        
         @Override
         public void bindView(View view, Context context, Cursor cursor) {
             DBMessage dbmsg = getItem(cursor.getPosition());
@@ -443,68 +448,47 @@ public class ChatFragment extends Fragment {
             }
         }
         
-        private void bindViewForFile(View view, Context context, DBMessage dbmsg) {
+        private void bindViewForFile(View view, Context context, final DBMessage dbmsg) {
             final int id = dbmsg.getId();
-            int status = dbmsg.getStatus();
 
-            ViewHolder holder = (ViewHolder) view.getTag();
-            FileViewHolder fileHolder = (FileViewHolder) holder.fileItem.getTag();
-            IndicatorViewHolder indicatorHolder = (IndicatorViewHolder) holder.indicator.getTag();
+            final ViewHolder holder = (ViewHolder) view.getTag();
+            final FileViewHolder fileHolder = (FileViewHolder) holder.fileItem.getTag();
+            final IndicatorViewHolder indicatorHolder = (IndicatorViewHolder) holder.indicator.getTag();
 
             holder.tvMsg.setVisibility(View.GONE);
             holder.fileItem.setVisibility(View.VISIBLE);
 
-            DBAttachment attachment = getAttachmentByMsgId(id);
-            if (attachment == null) {
-                ConnectionManager.getInstance().dbOp(new RunnableWithDefer((Activity)context) {
+            mAttachmentLoader.loadForView(view, id).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    DBAttachment attachment = (DBAttachment) args[0];
+                    if (attachment == null)
+                        return;
+                    fileHolder.name.setText(attachment.getName());
+                    fileHolder.size.setText("("
+                            + FileUtils.byteCountToDisplaySize(attachment.getSize())
+                            + ")");
 
-                    @Override
-                    public void run() {
-                        try {
-                            DbUtils db = ConnectionManager.getInstance().getDB();
-                            DBAttachment attachment = db.findFirst(Selector
-                                    .from(DBAttachment.class)
-                                    .where("message_id", "=", id));
-                            getDefer().resolve(attachment);
-                        } catch (DbException e) {
-                            e.printStackTrace();
-                        }
+                    fileHolder.icon.setImageResource(R.drawable.file_normal_btn);
+                    int status = dbmsg.getStatus();
+                    if (status == MessageColumns.STATUS_SENDING) {
+                        float percent = AttachmentHelper
+                                .getProgress(attachment.getId());
+                        int ipercent = (int) (percent * 100);
+                        indicatorHolder.progress.setVisibility(View.VISIBLE);
+                        indicatorHolder.percent
+                                .setText(String.format("%d%%", ipercent));
+                    } else if (status == MessageColumns.STATUS_IDLE) {
+                        fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
+                    } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
+                        fileHolder.icon.setImageResource(R.drawable.file_download_btn);
+                    } else if (status == MessageColumns.STATUS_FAIL
+                            || status == MessageColumns.STATUS_FAIL_UPLOADING) {
+                        fileHolder.icon.setImageResource(R.drawable.file_fail);
                     }
-                }).done(new Func() {
-                    
-                    @Override
-                    public void call(Object... args) {
-                        // this is run in UI thread
-                        DBAttachment dbatt = (DBAttachment) args[0];
-                        mAttachmentMap.put(id, dbatt);
-                        notifyDataSetChanged();
-                        LogUtils.d(dbatt.toString());
-                    }
-                });
-                return;
-            }
-
-            fileHolder.name.setText(attachment.getName());
-            fileHolder.size.setText("("
-                    + FileUtils.byteCountToDisplaySize(attachment.getSize())
-                    + ")");
-
-            fileHolder.icon.setImageResource(R.drawable.file_normal_btn);
-            if (status == MessageColumns.STATUS_SENDING) {
-                float percent = AttachmentHelper
-                        .getProgress(attachment.getId());
-                int ipercent = (int) (percent * 100);
-                indicatorHolder.progress.setVisibility(View.VISIBLE);
-                indicatorHolder.percent
-                        .setText(String.format("%d%%", ipercent));
-            } else if (status == MessageColumns.STATUS_IDLE) {
-                fileHolder.icon.setImageResource(R.drawable.file_ok_btn);
-            } else if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD) {
-                fileHolder.icon.setImageResource(R.drawable.file_download_btn);
-            } else if (status == MessageColumns.STATUS_FAIL
-                    || status == MessageColumns.STATUS_FAIL_UPLOADING) {
-                fileHolder.icon.setImageResource(R.drawable.file_fail);
-            }
+                }
+            });
         }
 
         @Override
@@ -547,14 +531,105 @@ public class ChatFragment extends Fragment {
             View progress;
             TextView percent;
         }
+        
         private static class FileViewHolder {
             ImageView icon;
             TextView name;
             TextView size;
         }
-
     }
     
+    private static class AttachmentLoader {
+        private HashMap<Integer, DBAttachment> mAttachmentMap = new HashMap<Integer, DBAttachment>();
+        private final ConcurrentHashMap<View, Integer> mPendingRequests = new ConcurrentHashMap<View, Integer>();
+        private Context mContext;
+        
+        public AttachmentLoader(Context context) {
+            mContext = context;
+        }
+        
+        public Promise loadForView(final View view, final int msgId) {
+            final MyDefer defer = new MyDefer((Activity)mContext);
+
+            DBAttachment attachment = getCachedAttachment(msgId);
+            if (attachment != null) {
+                defer.resolve(attachment);
+                return defer.promise();
+            }
+            
+            Integer oldId = mPendingRequests.get(view);
+            if (oldId != null && oldId == msgId) {
+                LogUtils.d("already loading");
+                return defer.promise();
+            }
+            
+            mPendingRequests.put(view, msgId);
+            doLoad(msgId).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    // this is run in UI thread
+                    DBAttachment dbatt = (DBAttachment) args[0];
+                    cacheAttachment(msgId, dbatt);
+                    LogUtils.d(dbatt.toString());
+                    Integer pendingId = mPendingRequests.remove(view);
+                    if (pendingId != null && pendingId == msgId)
+                        defer.resolve(dbatt);
+                }
+            });
+            return defer.promise();
+        }
+
+        public Promise load(final int msgId) {
+            final MyDefer defer = new MyDefer((Activity)mContext);
+            DBAttachment attachment = getCachedAttachment(msgId);
+            if (attachment != null) {
+                defer.resolve(attachment);
+                return defer.promise();
+            }
+            doLoad(msgId).done(new Func() {
+                
+                @Override
+                public void call(Object... args) {
+                    DBAttachment dbatt = (DBAttachment) args[0];
+                    cacheAttachment(msgId, dbatt);
+                    LogUtils.d(dbatt.toString());
+                    defer.resolve(dbatt);
+                }
+            });
+            return defer.promise();
+        }
+        
+        private Promise doLoad(final int msgId) {
+            return ConnectionManager.getInstance().dbOp(new RunnableWithDefer((Activity)mContext) {
+
+                @Override
+                public void run() {
+                    try {
+                        DbUtils db = ConnectionManager.getInstance().getDB();
+                        DBAttachment attachment = db.findFirst(Selector
+                                .from(DBAttachment.class)
+                                .where("message_id", "=", msgId));
+                        getDefer().resolve(attachment);
+                        return;
+                    } catch (DbException e) {
+                        e.printStackTrace();
+                    }
+                    getDefer().reject();
+                }
+            });
+        }
+
+        public DBAttachment getCachedAttachment(int msgId) {
+            return mAttachmentMap.get(msgId);
+        }
+        
+        public void cacheAttachment(int msgId, DBAttachment att) {
+            mAttachmentMap.put(msgId, att);
+        }
+
+    }
+
     private static String[] PROJECTION = {
         MessageColumns.ADDRESS,
         MessageColumns.BODY,
