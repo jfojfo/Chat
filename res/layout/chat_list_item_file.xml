@@ -15,15 +15,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginLeft="3dp"
-        android:layout_toRightOf="@+id/icon"
+        android:layout_marginRight="6dp"
+        android:layout_weight="1"
         android:text="file" />
 
     <TextView
         android:id="@+id/size"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginLeft="6dp"
-        android:layout_toRightOf="@+id/filename"
         android:text="(0k)"
         android:textColor="#aaa"
         android:textSize="10sp" />
