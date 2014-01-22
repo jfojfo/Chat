@@ -7,7 +7,7 @@ import com.lidroid.xutils.db.annotation.Table;
 //@Table(name = "parent", execAfterTableCreated = "CREATE UNIQUE INDEX index_name ON parent(name,email)")
 @Table(name = "attachments")
 public class DBAttachment extends EntityBase {
-    public String name;
+    private String name;
     private String desc;
     private String url;
     private long size;

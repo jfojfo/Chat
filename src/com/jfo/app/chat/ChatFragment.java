@@ -4,7 +4,6 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 
 import android.app.Activity;
@@ -46,7 +45,6 @@ import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
-import com.jfo.app.chat.proto.BDUploadFileResult;
 import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.libs.defer.Defer.Func;
@@ -175,12 +173,12 @@ public class ChatFragment extends Fragment {
         final ChatMsg chatMsg = new ChatMsg();
         chatMsg.setAddress(mUser);
         chatMsg.setBody(text);
-        chatMsg.setThreadID(mThreadID);
+        chatMsg.setThread_id(mThreadID);
         ConnectionManager.getInstance().sendMessage(getActivity(), chatMsg).done(new Func() {
             
             @Override
             public void call(Object... args) {
-                mThreadID = chatMsg.getThreadID();
+                mThreadID = chatMsg.getThread_id();
                 LogUtils.d("send msg success");
             }
         }).fail(new Func() {
@@ -208,21 +206,19 @@ public class ChatFragment extends Fragment {
     private void onSendFile(String file) {
         final FileMsg fileMsg = new FileMsg();
         fileMsg.setAddress(mUser);
-        fileMsg.setThreadID(mThreadID);
+        fileMsg.setThread_id(mThreadID);
         fileMsg.setFile(file);
         fileMsg.setBody(FilenameUtils.getName(fileMsg.getFile()));
         ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
             
             @Override
             public void call(Object... args) {
-                AttachmentHelper.removeProgress(fileMsg.getAttachmentId());
                 Utils.showMessage(getActivity(), "send file success");
             }
         }).fail(new Func() {
             
             @Override
             public void call(Object... args) {
-                AttachmentHelper.removeProgress(fileMsg.getAttachmentId());
                 Utils.showMessage(getActivity(), "send file fail");
             }
         }).progress(new Func() {
@@ -321,8 +317,8 @@ public class ChatFragment extends Fragment {
         int threadID = dbmsg.getThread_id();
         String body = dbmsg.getBody();
         ChatMsg chatMsg = new ChatMsg();
-        chatMsg.setMsgID(id);
-        chatMsg.setThreadID(threadID);
+        chatMsg.setId(id);
+        chatMsg.setThread_id(threadID);
         chatMsg.setAddress(address);
         chatMsg.setBody(body);
         ConnectionManager.getInstance().sendMessage(getActivity(), chatMsg).done(new Func() {
@@ -347,20 +343,9 @@ public class ChatFragment extends Fragment {
             public void call(Object... args) {
                 DBAttachment attachment = (DBAttachment) args[0];
                 if (attachment != null && attachment.getLocal_path() != null) {
-                    FileMsg fileMsg = new FileMsg();
-                    fileMsg.setMsgID(dbmsg.getId());
-                    fileMsg.setThreadID(dbmsg.getThread_id());
-                    fileMsg.setAddress(dbmsg.getAddress());
-                    fileMsg.setBody(dbmsg.getBody());
-                    fileMsg.setAttachmentId(attachment.getId());
+                    FileMsg fileMsg = new FileMsg(dbmsg);
+                    fileMsg.setAttachment(attachment);
                     fileMsg.setFile(attachment.getLocal_path());
-                    BDUploadFileResult info = new BDUploadFileResult();
-                    info.ctime = attachment.getCreate_time();
-                    info.mtime = attachment.getModify_time();
-                    info.md5 = attachment.getMd5();
-                    info.size = attachment.getSize();
-                    info.path = attachment.getUrl();
-                    fileMsg.setInfo(info);
                     ConnectionManager.getInstance().sendFile(getActivity(), fileMsg).done(new Func() {
                         
                         @Override
@@ -395,58 +380,34 @@ public class ChatFragment extends Fragment {
             int status = dbmsg.getStatus();
             if (status == MessageColumns.STATUS_PENDING_TO_DOWNLOAD
                     || status == MessageColumns.STATUS_FAIL_DOWNLOADING) {
-                mAttachmentLoader.load(dbmsg.getId()).done(new Func() {
+                final FileMsg fileMsg = new FileMsg(dbmsg);
+                ConnectionManager.getInstance().downloadFile(getActivity(), fileMsg).done(new Func() {
                     
                     @Override
                     public void call(Object... args) {
-                        DBAttachment attachment = (DBAttachment) args[0];
-                        final FileMsg fileMsg = new FileMsg();
-                        fileMsg.setAddress(dbmsg.getAddress());
-                        fileMsg.setBody(dbmsg.getBody());
-                        fileMsg.setDate(dbmsg.getDate());
-                        fileMsg.setMsgID(dbmsg.getId());
-                        fileMsg.setMediaType(dbmsg.getMedia_type());
-                        fileMsg.setRead(dbmsg.getRead());
-                        fileMsg.setThreadID(dbmsg.getThread_id());
-                        fileMsg.setStatus(dbmsg.getStatus());
-                        fileMsg.setFile(Constants.ATTACHMENT_DIR + "/" + dbmsg.getBody());
-                        fileMsg.setAttachmentId(attachment.getId());
-                        BDUploadFileResult info = new BDUploadFileResult();
-                        info.path = attachment.getUrl();
-                        info.size = attachment.getSize();
-                        info.md5 = attachment.getMd5();
-                        info.ctime = attachment.getCreate_time();
-                        info.mtime = attachment.getModify_time();
-                        fileMsg.setInfo(info);
-                        ConnectionManager.getInstance().downloadFile(getActivity(), fileMsg).done(new Func() {
-                            
-                            @Override
-                            public void call(Object... args) {
-                                Utils.showMessage(getActivity(), "download attachment success");
-                            }
-                        }).fail(new Func() {
-                            
-                            @Override
-                            public void call(Object... args) {
-                                Utils.showMessage(getActivity(), "download attachment fail");
-                            }
-                        }).progress(new Func() {
-                            
-                            @Override
-                            public void call(Object... args) {
-                                FileMsg fileMsg = (FileMsg) args[0];
-                                long total = (Long) args[1];
-                                long curr = (Long) args[2];
-                                // LogUtils.d(String.format("total:%d, curr:%d", total, curr));
-                                mAdapter.notifyDataSetChanged();
-                            }
-                        }).always(new Func() {
-                            
-                            @Override
-                            public void call(Object... args) {
-                                mAttachmentLoader.remove(fileMsg.getMsgID());
-                            }
-                        });
+                        Utils.showMessage(getActivity(), "download attachment success");
+                    }
+                }).fail(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        Utils.showMessage(getActivity(), "download attachment fail");
+                    }
+                }).progress(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        FileMsg fileMsg = (FileMsg) args[0];
+                        long total = (Long) args[1];
+                        long curr = (Long) args[2];
+                        // LogUtils.d(String.format("total:%d, curr:%d", total, curr));
+                        mAdapter.notifyDataSetChanged();
+                    }
+                }).always(new Func() {
+                    
+                    @Override
+                    public void call(Object... args) {
+                        mAttachmentLoader.remove(fileMsg.getId());
                     }
                 });
             } else if (status == MessageColumns.STATUS_IDLE) {

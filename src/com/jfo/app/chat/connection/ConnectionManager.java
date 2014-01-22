@@ -50,6 +50,7 @@ import com.jfo.app.chat.connection.ex.XMPPFileExtension;
 import com.jfo.app.chat.connection.ex.XMPPFileExtensionProvider;
 import com.jfo.app.chat.connection.iq.ExMsgIQ;
 import com.jfo.app.chat.connection.iq.ExMsgIQProvider;
+import com.jfo.app.chat.db.DBAttachment;
 import com.jfo.app.chat.helper.AttachmentHelper;
 import com.jfo.app.chat.helper.DeferHelper;
 import com.jfo.app.chat.helper.DeferHelper.MyDefer;
@@ -64,6 +65,8 @@ import com.libs.defer.Defer.Func;
 import com.libs.defer.Defer.Promise;
 import com.libs.utils.Utils;
 import com.lidroid.xutils.DbUtils;
+import com.lidroid.xutils.db.sqlite.Selector;
+import com.lidroid.xutils.exception.DbException;
 import com.lidroid.xutils.http.RequestParams;
 import com.lidroid.xutils.http.callback.FileDownloadHandler;
 import com.lidroid.xutils.http.callback.RequestCallBackHandler;
@@ -444,26 +447,35 @@ public class ConnectionManager {
             
             @Override
             public void run() {
-                LogUtils.d("send file, threadID:" + fileMsg.getThreadID());
+                LogUtils.d("send file, threadID:" + fileMsg.getThread_id());
                 ChatMsg chatMsg = fileMsg;
-                if (chatMsg.getThreadID() == 0) {
-                    chatMsg.setThreadID(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
-                    LogUtils.d("send file, create new threadID:" + chatMsg.getThreadID());
+                if (chatMsg.getThread_id() == 0) {
+                    chatMsg.setThread_id(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
+                    LogUtils.d("send file, create new threadID:" + chatMsg.getThread_id());
                 }
                 chatMsg.setDate(System.currentTimeMillis());
                 chatMsg.setRead(1);
                 chatMsg.setType(MessageColumns.TYPE_OUTBOX);
                 chatMsg.setStatus(MessageColumns.STATUS_SENDING);
-                chatMsg.setMediaType(MessageColumns.MEDIA_FILE);
+                chatMsg.setMedia_type(MessageColumns.MEDIA_FILE);
                 Uri uri = DBOP.inserOrUpdateMsg(mContext, chatMsg);
                 LogUtils.d(uri.toString());
-                chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
+                chatMsg.setId(Integer.valueOf(uri.getLastPathSegment()));
                 
-                uri = DBOP.insertOrUpdateAttachment(mContext, fileMsg);
-                LogUtils.d(uri.toString());
-                int attId = Integer.valueOf(uri.getLastPathSegment());
-                fileMsg.setAttachmentId(attId);
-
+                DBAttachment dbatt = fileMsg.getAttachment();
+                if (dbatt == null) {
+                    dbatt = new DBAttachment();
+                    dbatt.setName(FilenameUtils.getName(fileMsg.getFile()));
+                    dbatt.setMessage_id(fileMsg.getId());
+                    dbatt.setLocal_path(fileMsg.getFile());
+                }
+                File f = new File(fileMsg.getFile());
+                if (f.exists())
+                    dbatt.setSize(f.length());
+                DBOP.insertOrUpdateAttachment(dbatt);
+                LogUtils.d("insert attachemnt: " + dbatt.getId());
+                
+                fileMsg.setAttachment(dbatt);
                 getDefer().resolve();
             }
         }).done(new Func() {
@@ -474,8 +486,8 @@ public class ConnectionManager {
 
                     @Override
                     public void run() {
-                        if (fileMsg.getInfo() == null || 
-                                TextUtils.isEmpty(fileMsg.getInfo().path))
+                        DBAttachment dbatt = fileMsg.getAttachment();
+                        if (TextUtils.isEmpty(dbatt.getUrl()))
                             uploadFile(defer, fileMsg);
                         else
                             doSendMsg(defer, fileMsg);
@@ -494,7 +506,8 @@ public class ConnectionManager {
     private void uploadFile(final MyDefer defer, final FileMsg fileMsg) {
         String failMsg = "";
         try {
-            File file = new File(fileMsg.getFile());
+            DBAttachment dbatt = fileMsg.getAttachment();
+            File file = new File(dbatt.getLocal_path());
 
             RequestParams params = new RequestParams();
             String name = UUID.randomUUID().toString();
@@ -508,7 +521,7 @@ public class ConnectionManager {
 
                 @Override
                 public boolean updateProgress(long total, long current, boolean forceUpdateUI) {
-                    AttachmentHelper.setProgress(fileMsg.getAttachmentId(), current, total);
+                    AttachmentHelper.setProgress(fileMsg.getAttachment().getId(), current, total);
                     defer.notify(fileMsg, total, current);
                     return true;
                 }
@@ -525,8 +538,7 @@ public class ConnectionManager {
                 if (result != null) {
                     BDUploadFileResult uploadResult = G.fromJson(result, BDUploadFileResult.class);
                     if (uploadResult != null) {
-                        fileMsg.setInfo(uploadResult);
-                        doUpdateAttachment(defer, fileMsg);
+                        doUpdateAttachment(defer, fileMsg, uploadResult);
                         return;
                     }
                     failMsg = result;
@@ -544,12 +556,18 @@ public class ConnectionManager {
         defer.reject(failMsg);
     }
 
-    private void doUpdateAttachment(final MyDefer defer, final FileMsg fileMsg) {
+    private void doUpdateAttachment(final MyDefer defer, final FileMsg fileMsg, final BDUploadFileResult info) {
         dbOp(new RunnableWithDefer() {
             
             @Override
             public void run() {
-                DBOP.insertOrUpdateAttachment(mContext, fileMsg);
+                DBAttachment dbatt = fileMsg.getAttachment();
+                dbatt.setUrl(info.path);
+                dbatt.setMd5(info.md5);
+                dbatt.setCreate_time(info.ctime);
+                dbatt.setModify_time(info.mtime);
+                dbatt.setSize(info.size);
+                DBOP.insertOrUpdateAttachment(dbatt);
                 getDefer().resolve();
             }
         }).done(new Func() {
@@ -564,27 +582,41 @@ public class ConnectionManager {
             public void call(Object... args) {
                 defer.reject();
             }
+        }).always(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                AttachmentHelper.removeProgress(fileMsg.getAttachment().getId());
+            }
         });
     }
     
     public Promise downloadFile(Activity activity, final FileMsg fileMsg) {
         final MyDefer defer = new MyDefer(activity);
-        BackgroundExecutor.execute(new Runnable() {
+        dbOp(new RunnableWithDefer() {
 
             @Override
             public void run() {
-                dbOp(new RunnableWithDefer() {
-                    
+                try {
+                    DBAttachment dbatt = db.findFirst(Selector.from(
+                            DBAttachment.class).where("message_id", "=",
+                            fileMsg.getId()));
+                    fileMsg.setAttachment(dbatt);
+                    fileMsg.setStatus(MessageColumns.STATUS_DOWNLOADING);
+                    DBOP.markStatus(mContext, fileMsg);
+                    getDefer().resolve();
+                } catch (DbException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).done(new Func() {
+
+            @Override
+            public void call(Object... args) {
+                BackgroundExecutor.execute(new Runnable() {
+
                     @Override
                     public void run() {
-                        fileMsg.setStatus(MessageColumns.STATUS_DOWNLOADING);
-                        DBOP.inserOrUpdateMsg(mContext, fileMsg);
-                        getDefer().resolve();
-                    }
-                }).done(new Func() {
-                    
-                    @Override
-                    public void call(Object... args) {
                         doGetFileUrl(defer, fileMsg);
                     }
                 });
@@ -594,17 +626,16 @@ public class ConnectionManager {
     }
     
     private void doGetFileUrl(final MyDefer defer, FileMsg fileMsg) {
-        String remotePath = null;
-        if (fileMsg.getInfo() != null && !TextUtils.isEmpty(fileMsg.getInfo().path)) {
-            remotePath = fileMsg.getInfo().path;
-        }
-        if (remotePath == null) {
+        DBAttachment dbatt = fileMsg.getAttachment();
+        if (dbatt == null || TextUtils.isEmpty(dbatt.getUrl())) {
+            fileMsg.setStatus(MessageColumns.STATUS_FAIL_DOWNLOADING);
+            DBOP.markStatus(mContext, fileMsg);
             defer.reject();
             return;
         }
         try {
             RequestParams params = new RequestParams();
-            params.addQueryStringParameter("path", remotePath);
+            params.addQueryStringParameter("path", dbatt.getUrl());
             HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.GET, Constants.URL_GET_FILE_URL_OLD);
             request.setRequestParams(params);
 
@@ -625,13 +656,13 @@ public class ConnectionManager {
             e.printStackTrace();
         }
         fileMsg.setStatus(MessageColumns.STATUS_FAIL_DOWNLOADING);
-        DBOP.inserOrUpdateMsg(mContext, fileMsg);
+        DBOP.markStatus(mContext, fileMsg);
         defer.reject();
     }
 
     private void doDownloadFile(final MyDefer defer, final FileMsg fileMsg, String url) {
-        long size = fileMsg.getInfo().size;
-        String localPath = fileMsg.getFile();
+        final DBAttachment dbatt = fileMsg.getAttachment();
+        String localPath = Constants.ATTACHMENT_DIR + "/" + dbatt.getName();
         try {
             RequestParams params = new RequestParams();
             HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.GET, url);
@@ -654,7 +685,7 @@ public class ConnectionManager {
                         float percent = 0.0f;
                         if (total != 0)
                             percent = (float) current / total;
-                        AttachmentHelper.setProgress(fileMsg.getAttachmentId(), percent);
+                        AttachmentHelper.setProgress(dbatt.getId(), percent);
                         defer.notify(fileMsg, total, current);
                         return true;
                     }
@@ -662,8 +693,10 @@ public class ConnectionManager {
                 LogUtils.d("result: " + result.getName());
 
                 fileMsg.setStatus(MessageColumns.STATUS_IDLE);
-                DBOP.inserOrUpdateMsg(mContext, fileMsg);
-                DBOP.insertOrUpdateAttachment(mContext, fileMsg);
+                DBOP.markStatus(mContext, fileMsg);
+                
+                dbatt.setLocal_path(localPath);
+                DBOP.insertOrUpdateAttachment(dbatt);
 
                 defer.resolve();
                 return;
@@ -673,11 +706,10 @@ public class ConnectionManager {
             e.printStackTrace();
         }
         fileMsg.setStatus(MessageColumns.STATUS_FAIL_DOWNLOADING);
-        DBOP.inserOrUpdateMsg(mContext, fileMsg);
+        DBOP.markStatus(mContext, fileMsg);
         defer.reject();
     }
 
-    // TODO dbOp.done().fail() is useless! no place to call defer.resolve() or defer.reject()
     public Promise dbOp(RunnableWithDefer action) {
         putToQueue(mDBOpQueue, action);
         return action.getDefer().promise();
@@ -685,24 +717,24 @@ public class ConnectionManager {
     
     public Promise sendMessage(Activity activity, final ChatMsg chatMsg) {
         final MyDefer defer = new MyDefer(activity);
-        LogUtils.d("send msg, threadID:" + chatMsg.getThreadID());
+        LogUtils.d("send msg, threadID:" + chatMsg.getThread_id());
         putToQueue(mDBOpQueue, new Runnable() {
             
             @Override
             public void run() {
-                if (chatMsg.getThreadID() == 0) {
-                    chatMsg.setThreadID(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
-                    LogUtils.d("send msg, create new threadID:" + chatMsg.getThreadID());
+                if (chatMsg.getThread_id() == 0) {
+                    chatMsg.setThread_id(ThreadsHelper.getOrCreateThreadId(mContext, chatMsg.getAddress()));
+                    LogUtils.d("send msg, create new threadID:" + chatMsg.getThread_id());
                 }
                 chatMsg.setDate(System.currentTimeMillis());
                 chatMsg.setRead(1);
                 chatMsg.setType(MessageColumns.TYPE_OUTBOX);
                 chatMsg.setStatus(MessageColumns.STATUS_SENDING);
-                chatMsg.setMediaType(MessageColumns.MEDIA_NORMAL);
+                chatMsg.setMedia_type(MessageColumns.MEDIA_NORMAL);
                 Uri uri = DBOP.inserOrUpdateMsg(mContext, chatMsg);
                 LogUtils.d(uri.toString());
 
-                chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
+                chatMsg.setId(Integer.valueOf(uri.getLastPathSegment()));
                 doSendMsg(defer, chatMsg);
             }
         });
@@ -838,29 +870,27 @@ public class ConnectionManager {
 
                             ChatMsg chatMsg = new ChatMsg();
                             chatMsg.setAddress(user);
-                            chatMsg.setThreadID(threadID);
+                            chatMsg.setThread_id(threadID);
                             chatMsg.setBody(message.getBody());
                             chatMsg.setDate(System.currentTimeMillis());
                             chatMsg.setRead(0);
                             chatMsg.setType(MessageColumns.TYPE_INBOX);
                             chatMsg.setStatus(MessageColumns.STATUS_IDLE);
-                            chatMsg.setMediaType(MessageColumns.MEDIA_NORMAL);
+                            chatMsg.setMedia_type(MessageColumns.MEDIA_NORMAL);
                             Uri uri = DBOP.inserOrUpdateMsg(mContext, chatMsg);
-                            chatMsg.setMsgID(Integer.valueOf(uri.getLastPathSegment()));
+                            chatMsg.setId(Integer.valueOf(uri.getLastPathSegment()));
                             
                             Collection<PacketExtension> extensions = message.getExtensions();
                             for (PacketExtension ex : extensions) {
                                 if (ex instanceof XMPPFileExtension) {
-                                    chatMsg.setMediaType(MessageColumns.MEDIA_FILE);
+                                    chatMsg.setMedia_type(MessageColumns.MEDIA_FILE);
                                     chatMsg.setStatus(MessageColumns.STATUS_PENDING_TO_DOWNLOAD);
                                     DBOP.inserOrUpdateMsg(mContext, chatMsg);
 
-                                    BDUploadFileResult info = ((XMPPFileExtension) ex).getInfo();
-                                    FileMsg fileMsg = new FileMsg();
-                                    fileMsg.setMsgID(chatMsg.getMsgID());
-                                    fileMsg.setFile(chatMsg.getBody());
-                                    fileMsg.setInfo(info);
-                                    DBOP.insertOrUpdateAttachment(mContext, fileMsg);
+                                    FileMsg fileMsg = ((XMPPFileExtension) ex).getFileMsg();
+                                    DBAttachment dbatt = fileMsg.getAttachment();
+                                    dbatt.setMessage_id(chatMsg.getId());
+                                    DBOP.insertOrUpdateAttachment(dbatt);
                                 }
                             }
                         }

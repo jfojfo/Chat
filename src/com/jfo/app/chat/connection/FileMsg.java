@@ -1,19 +1,27 @@
 package com.jfo.app.chat.connection;
 
 import com.jfo.app.chat.connection.ex.XMPPFileExtension;
-import com.jfo.app.chat.proto.BDUploadFileResult;
+import com.jfo.app.chat.db.DBAttachment;
+import com.jfo.app.chat.db.DBMessage;
 
 public class FileMsg extends ChatMsg {
     private String file;
-    private BDUploadFileResult info;
-    private int attachmentId;
+    private DBAttachment attachment;
 
-    public int getAttachmentId() {
-        return attachmentId;
+    public FileMsg() {
+        super();
     }
 
-    public void setAttachmentId(int attachmentId) {
-        this.attachmentId = attachmentId;
+    public FileMsg(DBMessage dbmsg) {
+        super(dbmsg);
+    }
+
+    public DBAttachment getAttachment() {
+        return attachment;
+    }
+
+    public void setAttachment(DBAttachment attachment) {
+        this.attachment = attachment;
     }
 
     public String getFile() {
@@ -24,18 +32,10 @@ public class FileMsg extends ChatMsg {
         this.file = file;
     }
 
-    public BDUploadFileResult getInfo() {
-        return info;
-    }
-
-    public void setInfo(BDUploadFileResult info) {
-        this.info = info;
-    }
-
     public XMPPMsg toXMPP() {
         XMPPMsg xmppMsg = super.toXMPP();
         XMPPFileExtension xmppFile = new XMPPFileExtension();
-        xmppFile.setInfo(getInfo());
+        xmppFile.setFileMsg(this);
         xmppMsg.addExtension(xmppFile);
         return xmppMsg;
     }

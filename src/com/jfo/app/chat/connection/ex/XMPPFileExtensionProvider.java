@@ -4,7 +4,8 @@ import org.jivesoftware.smack.packet.PacketExtension;
 import org.jivesoftware.smack.provider.PacketExtensionProvider;
 import org.xmlpull.v1.XmlPullParser;
 
-import com.jfo.app.chat.proto.BDUploadFileResult;
+import com.jfo.app.chat.connection.FileMsg;
+import com.jfo.app.chat.db.DBAttachment;
 
 public class XMPPFileExtensionProvider implements PacketExtensionProvider {
 
@@ -12,29 +13,33 @@ public class XMPPFileExtensionProvider implements PacketExtensionProvider {
     public PacketExtension parseExtension(XmlPullParser parser)
             throws Exception {
         XMPPFileExtension exMsgFile = new XMPPFileExtension();
-        BDUploadFileResult info = new BDUploadFileResult();
+        FileMsg fileMsg = new FileMsg();
+        DBAttachment dbatt = new DBAttachment();
+        fileMsg.setAttachment(dbatt);
 
         boolean done = false;
         while (!done) {
             int eventType = parser.next();
             if (eventType == XmlPullParser.START_TAG) {
-                if (parser.getName().equals("path"))
-                    info.path = parser.nextText();
+                if (parser.getName().equals("url"))
+                    dbatt.setUrl(parser.nextText());
                 if (parser.getName().equals("size"))
-                    info.size = Long.parseLong(parser.nextText());
+                    dbatt.setSize(Long.parseLong(parser.nextText()));
                 if (parser.getName().equals("ctime"))
-                    info.ctime = Long.parseLong(parser.nextText());
+                    dbatt.setCreate_time(Long.parseLong(parser.nextText()));
                 if (parser.getName().equals("mtime"))
-                    info.mtime = Long.parseLong(parser.nextText());
+                    dbatt.setModify_time(Long.parseLong(parser.nextText()));
                 if (parser.getName().equals("md5"))
-                    info.md5 = parser.nextText();
+                    dbatt.setMd5(parser.nextText());
+                if (parser.getName().equals("file"))
+                    dbatt.setName(parser.nextText());
             } else if (eventType == XmlPullParser.END_TAG) {
                 if (parser.getName().equals("x")) {
                     done = true;
                 }
             }
         }
-        exMsgFile.setInfo(info);
+        exMsgFile.setFileMsg(fileMsg);
         return exMsgFile;
     }
 
