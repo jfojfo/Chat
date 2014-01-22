@@ -17,7 +17,7 @@ public class ViewInjectInfo {
         ViewInjectInfo that = (ViewInjectInfo) o;
 
         if (parentId != that.parentId) return false;
-        if (value == null && null != that.value) return false;
+        if (value == null) return (null == that.value);
 
         return value.equals(that.value);
     }
