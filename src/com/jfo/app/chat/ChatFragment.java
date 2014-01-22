@@ -47,6 +47,7 @@ import com.jfo.app.chat.helper.DeferHelper.MyDefer;
 import com.jfo.app.chat.helper.DeferHelper.RunnableWithDefer;
 import com.jfo.app.chat.helper.FilePicker;
 import com.jfo.app.chat.proto.BDUploadFileResult;
+import com.jfo.app.chat.provider.ChatDataStructs.AttachmentsColumns;
 import com.jfo.app.chat.provider.ChatDataStructs.MessageColumns;
 import com.libs.defer.Defer.Func;
 import com.libs.defer.Defer.Promise;
@@ -261,15 +262,7 @@ public class ChatFragment extends Fragment {
 
         switch (item.getItemId()) {
         case ITEM_DELETE: {
-            final long id = dbmsg.getId();
-            ConnectionManager.getInstance().dbOp(new RunnableWithDefer() {
-                
-                @Override
-                public void run() {
-                    getActivity().getContentResolver().delete(ContentUris.withAppendedId(
-                            MessageColumns.CONTENT_URI, id), null, null);
-                }
-            });
+            deleteMsg(dbmsg);
             break;
         }
         case ITEM_RESEND: {
@@ -284,6 +277,44 @@ public class ChatFragment extends Fragment {
         return super.onContextItemSelected(item);
     }
 
+    private void deleteMsg(DBMessage dbmsg) {
+        final int id = dbmsg.getId();
+        mAttachmentLoader.load(id).done(new Func() {
+            
+            @Override
+            public void call(Object... args) {
+                final DBAttachment attachment = (DBAttachment) args[0];
+                if (attachment != null) {
+                    ConnectionManager.getInstance().dbOp(new RunnableWithDefer() {
+                        
+                        @Override
+                        public void run() {
+                            if (getActivity() == null)
+                                return;
+                            getActivity().getContentResolver().delete(ContentUris.withAppendedId(
+                                    AttachmentsColumns.CONTENT_URI, attachment.getId()), null, null);
+                            String path = attachment.getLocal_path();
+                            if (path != null && path.startsWith(Constants.ATTACHMENT_DIR)) {
+                                boolean r = new File(path).delete();
+                                LogUtils.d("file deleted: " + r);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        ConnectionManager.getInstance().dbOp(new RunnableWithDefer() {
+            
+            @Override
+            public void run() {
+                if (getActivity() == null)
+                    return;
+                getActivity().getContentResolver().delete(ContentUris.withAppendedId(
+                        MessageColumns.CONTENT_URI, id), null, null);
+            }
+        });
+    }
+    
     private void resendMsg(DBMessage dbmsg) {
         int id = dbmsg.getId();
         String address = dbmsg.getAddress();
@@ -369,7 +400,7 @@ public class ChatFragment extends Fragment {
                     @Override
                     public void call(Object... args) {
                         DBAttachment attachment = (DBAttachment) args[0];
-                        FileMsg fileMsg = new FileMsg();
+                        final FileMsg fileMsg = new FileMsg();
                         fileMsg.setAddress(dbmsg.getAddress());
                         fileMsg.setBody(dbmsg.getBody());
                         fileMsg.setDate(dbmsg.getDate());
@@ -378,7 +409,7 @@ public class ChatFragment extends Fragment {
                         fileMsg.setRead(dbmsg.getRead());
                         fileMsg.setThreadID(dbmsg.getThread_id());
                         fileMsg.setStatus(dbmsg.getStatus());
-                        fileMsg.setFile(dbmsg.getBody());
+                        fileMsg.setFile(Constants.ATTACHMENT_DIR + "/" + dbmsg.getBody());
                         fileMsg.setAttachmentId(attachment.getId());
                         BDUploadFileResult info = new BDUploadFileResult();
                         info.path = attachment.getUrl();
@@ -408,6 +439,12 @@ public class ChatFragment extends Fragment {
                                 long curr = (Long) args[2];
                                 // LogUtils.d(String.format("total:%d, curr:%d", total, curr));
                                 mAdapter.notifyDataSetChanged();
+                            }
+                        }).always(new Func() {
+                            
+                            @Override
+                            public void call(Object... args) {
+                                mAttachmentLoader.remove(fileMsg.getMsgID());
                             }
                         });
                     }
@@ -674,12 +711,16 @@ public class ChatFragment extends Fragment {
             });
         }
 
-        public DBAttachment getCachedAttachment(int msgId) {
+        private DBAttachment getCachedAttachment(int msgId) {
             return mAttachmentMap.get(msgId);
         }
         
-        public void cacheAttachment(int msgId, DBAttachment att) {
+        private void cacheAttachment(int msgId, DBAttachment att) {
             mAttachmentMap.put(msgId, att);
+        }
+
+        public void remove(int msgId) {
+            mAttachmentMap.remove(msgId);
         }
 
     }

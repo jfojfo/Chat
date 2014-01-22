@@ -631,7 +631,7 @@ public class ConnectionManager {
 
     private void doDownloadFile(final MyDefer defer, final FileMsg fileMsg, String url) {
         long size = fileMsg.getInfo().size;
-        String localPath = Constants.ATTACHMENT_DIR + "/" + fileMsg.getFile();
+        String localPath = fileMsg.getFile();
         try {
             RequestParams params = new RequestParams();
             HttpRequest request = new HttpRequest(HttpRequest.HttpMethod.GET, url);
@@ -663,6 +663,7 @@ public class ConnectionManager {
 
                 fileMsg.setStatus(MessageColumns.STATUS_IDLE);
                 DBOP.inserOrUpdateMsg(mContext, fileMsg);
+                DBOP.insertOrUpdateAttachment(mContext, fileMsg);
 
                 defer.resolve();
                 return;

@@ -51,7 +51,9 @@ public class DBOP {
         values.put(AttachmentsColumns.MESSAGE_ID, fileMsg.getMsgID());
         if (!TextUtils.isEmpty(fileMsg.getFile())) {
             values.put(AttachmentsColumns.LOCAL_PATH, fileMsg.getFile());
-            values.put(AttachmentsColumns.SIZE, new File(fileMsg.getFile()).length());
+            File f = new File(fileMsg.getFile());
+            if (f.exists())
+                values.put(AttachmentsColumns.SIZE, f.length());
         }
         BDUploadFileResult info = fileMsg.getInfo();
         if (info != null) {
