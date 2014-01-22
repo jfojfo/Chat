@@ -126,10 +126,6 @@ public class ConnectionManager {
         mDBOpThread = new DBOpThread("dbop-thread");
         mDBOpThread.start();
 
-        db = DbUtils.create(context, ChatProvider.DATABASE_NAME);
-        db.configAllowTransaction(true);
-        db.configDebug(false);
-
         // this will register providers in ConfigureProviderManager.java
         SmackAndroid.init(mContext);
         SmackConfiguration.setPacketReplyTimeout(20000);
@@ -175,9 +171,14 @@ public class ConnectionManager {
     }
 
     public DbUtils getDB() {
+        if (db == null) {
+            db = DbUtils.create(mContext, ChatProvider.DATABASE_NAME);
+            db.configAllowTransaction(true);
+            db.configDebug(false);
+        }
         return db;
     }
-    
+
     public XMPPConnection getConnection() {
         return mConnection;
     }
