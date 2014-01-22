@@ -2,8 +2,10 @@ package com.jfo.app.chat.helper;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentManager;
@@ -84,11 +86,34 @@ public class FilePicker {
             if (requestCode == JOB_CHOOSE_FILE) {
                 if (resultCode == Activity.RESULT_OK && data != null) {
                     Uri uri = data.getData();
-                    accept(uri.getPath());
+                    String scheme = uri.getScheme();
+                    String path = "";
+                    if ("file".equals(scheme)) {
+                        path = uri.getPath();
+                    } else if ("content".equals(scheme)) {
+                        path = getPathFromMedia(uri);
+                    }
+                    accept(path);
                 }
             }
         }
 
+        private String getPathFromMedia(Uri uri) {
+            String[] projection = { MediaStore.Images.Media.DATA };
+            Cursor cursor = mContext.getContentResolver().query(uri,
+                    projection, null, null, null);
+            if (cursor == null)
+                return "";
+            try {
+                cursor.moveToFirst();
+                return cursor.getString(0);
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                cursor.close();
+            }
+            return "";
+        }
     }
 
 }
